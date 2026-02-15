@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAT Archiver</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2e3346;
+    --text: #e2e4eb;
+    --text-dim: #8b8fa3;
+    --accent: #6c7ee1;
+    --accent-hover: #5a6bd4;
+    --green: #4caf82;
+    --red: #e05555;
+    --orange: #e0a050;
+    --badge-story: #6c7ee1;
+    --badge-post: #4caf82;
+    --badge-profile: #e0a050;
+    --badge-comment: #e05555;
+    --badge-collection: #b06ce0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.5; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+
+  /* Header */
+  .header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 500;
+  }
+  .badge-source { background: var(--surface2); color: var(--text-dim); }
+
+  /* Main */
+  .main { flex: 1; padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 16px;
+  }
+  .panel-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .panel-header h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+  .panel-header .toggle { color: var(--text-dim); font-size: 12px; }
+  .panel-body { padding: 16px; }
+  .panel-body.collapsed { display: none; }
+
+  /* Form elements */
+  .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group.flex-1 { flex: 1; min-width: 200px; }
+  label { font-size: 12px; font-weight: 500; color: var(--text-dim); }
+  input[type="text"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; color: var(--text); font-size: 14px; outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--text-dim); opacity: 0.5; }
+  button {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 13px;
+    font-weight: 500; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: var(--border); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.primary:disabled { background: var(--accent); }
+  button.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  button.danger:hover { opacity: 0.9; }
+
+  /* Stats bar */
+  .stats-bar {
+    display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat {
+    padding: 4px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
+    background: var(--surface2);
+  }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; padding: 10px 12px; font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim);
+    border-bottom: 1px solid var(--border); background: var(--surface);
+    position: sticky; top: 0;
+  }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--surface2); }
+  tr.duplicate { opacity: 0.55; }
+  tr.duplicate td:nth-child(2) { text-decoration: line-through; }
+
+  .type-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .type-Story { background: rgba(108,126,225,0.15); color: var(--badge-story); }
+  .type-Post { background: rgba(76,175,130,0.15); color: var(--badge-post); }
+  .type-Profile { background: rgba(224,160,80,0.15); color: var(--badge-profile); }
+  .type-Comment { background: rgba(224,85,85,0.15); color: var(--badge-comment); }
+  .type-Collection { background: rgba(176,108,224,0.15); color: var(--badge-collection); }
+
+  /* Table actions */
+  .table-actions {
+    padding: 12px 16px; display: flex; gap: 8px; align-items: center;
+    border-top: 1px solid var(--border);
+  }
+  .table-actions .spacer { flex: 1; }
+  .selected-count { font-size: 13px; color: var(--text-dim); }
+
+  /* Status bar */
+  .status-bar {
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 10px 24px; font-size: 13px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .status-bar.success { color: var(--green); }
+  .status-bar.error { color: var(--red); }
+  .status-bar.loading { color: var(--orange); }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--orange); border-radius: 50%;
+    animation: spin 0.8s linear infinite; display: none;
+  }
+  .status-bar.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Checkbox */
+  input[type="checkbox"] {
+    width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
+  }
+
+  .shortcode-cell {
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
+  }
+
+  .empty-state {
+    text-align: center; padding: 48px 24px; color: var(--text-dim);
+  }
+  .empty-state p { font-size: 14px; margin-top: 8px; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>SAT Archiver</h1>
+  <span class="badge badge-source" id="source-badge">
+    {{ source_folder if source_folder else "No source folder detected" }}
+  </span>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Settings Panel -->
+  <div class="panel" id="settings-panel">
+    <div class="panel-header" onclick="togglePanel('settings')">
+      <h2>Settings</h2>
+      <span class="toggle" id="settings-toggle">Hide</span>
+    </div>
+    <div class="panel-body" id="settings-body">
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label for="apps-script-url">Apps Script URL</label>
+          <input type="text" id="apps-script-url" placeholder="https://script.google.com/macros/s/.../exec" value="{{ apps_script_url }}" style="min-width: 400px;">
+        </div>
+        <button onclick="testConnection()" id="btn-test">Test Connection</button>
+      </div>
+      <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);">
+        Deploy from your Google Sheet: Extensions &gt; Apps Script &gt; Deploy &gt; Web app
+      </div>
+      <div class="form-row" style="margin-top: 12px;">
+        <div class="form-group" style="width: 200px;">
+          <label for="default-initials">Default Initials</label>
+          <input type="text" id="default-initials" placeholder="e.g. JD" value="{{ default_initials }}">
+        </div>
+        <button onclick="saveSettings()" id="btn-save-settings">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workflow Panel -->
+  <div class="panel">
+    <div class="panel-header" style="cursor: default;">
+      <h2>Workflow</h2>
+    </div>
+    <div class="panel-body">
+      <div class="form-row">
+        <div class="form-group" style="width: 200px;">
+          <label for="initials">Archiver Initials</label>
+          <input type="text" id="initials" placeholder="Your initials" value="{{ default_initials }}">
+        </div>
+        <button class="primary" onclick="scanFolder()" id="btn-scan">Scan Folder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Panel -->
+  <div class="panel hidden" id="results-panel">
+    <div class="panel-header" style="cursor: default;">
+      <h2>Scan Results</h2>
+    </div>
+    <!-- Stats bar -->
+    <div class="stats-bar" id="stats-bar"></div>
+    <!-- Table -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleAll(this.checked)"></th>
+            <th>Shortcode</th>
+            <th>Username</th>
+            <th>Type</th>
+            <th>Category</th>
+            <th>WPAS</th>
+            <th>Batch</th>
+            <th>Date</th>
+            <th>Media</th>
+            <th>Files</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="items-tbody"></tbody>
+      </table>
+    </div>
+    <!-- Table actions -->
+    <div class="table-actions">
+      <button onclick="selectAllNew()">Select All New</button>
+      <button onclick="deselectAll()">Deselect All</button>
+      <span class="spacer"></span>
+      <span class="selected-count" id="selected-count">0 selected</span>
+      <button class="primary" onclick="archiveSelected()" id="btn-archive">Archive 0 items</button>
+    </div>
+  </div>
+
+  <!-- Empty state (before scan) -->
+  <div id="empty-state" class="empty-state">
+    <p>Enter your initials and click <strong>Scan Folder</strong> to discover content items.</p>
+  </div>
+
+</div>
+
+<!-- Status Bar -->
+<div class="status-bar" id="status-bar">
+  <div class="spinner"></div>
+  <span id="status-text">Ready.</span>
+</div>
+
+<script>
+const state = { items: [] };
+
+/* ── Panel toggle ─────────────────────────────────────────── */
+function togglePanel(id) {
+  const body = document.getElementById(id + '-body');
+  const toggle = document.getElementById(id + '-toggle');
+  const collapsed = body.classList.toggle('collapsed');
+  toggle.textContent = collapsed ? 'Show' : 'Hide';
+}
+
+/* ── Status bar helpers ───────────────────────────────────── */
+function setStatus(text, type) {
+  const bar = document.getElementById('status-bar');
+  const span = document.getElementById('status-text');
+  bar.className = 'status-bar' + (type ? ' ' + type : '');
+  span.textContent = text;
+}
+
+/* ── API helpers ──────────────────────────────────────────── */
+async function api(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return resp.json();
+}
+
+/* ── Settings ─────────────────────────────────────────────── */
+async function saveSettings() {
+  const btn = document.getElementById('btn-save-settings');
+  btn.disabled = true;
+  setStatus('Saving settings...', 'loading');
+  try {
+    const res = await api('/api/settings', {
+      apps_script_url: document.getElementById('apps-script-url').value,
+      default_initials: document.getElementById('default-initials').value,
+    });
+    setStatus(res.message, res.ok ? 'success' : 'error');
+  } catch (e) {
+    setStatus('Failed to save settings: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+async function testConnection() {
+  const btn = document.getElementById('btn-test');
+  btn.disabled = true;
+  setStatus('Testing connection...', 'loading');
+  try {
+    const res = await api('/api/test-connection', {
+      apps_script_url: document.getElementById('apps-script-url').value,
+    });
+    setStatus(res.message, res.ok ? 'success' : 'error');
+  } catch (e) {
+    setStatus('Connection test failed: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+/* ── Scan ─────────────────────────────────────────────────── */
+async function scanFolder() {
+  const initials = document.getElementById('initials').value.trim();
+  if (!initials) {
+    setStatus('Please enter your initials.', 'error');
+    return;
+  }
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  setStatus('Scanning folder...', 'loading');
+  try {
+    const res = await api('/api/scan', { initials });
+    if (!res.ok) {
+      setStatus(res.message, 'error');
+      btn.disabled = false;
+      return;
+    }
+    state.items = res.items;
+    renderResults(res);
+    setStatus(
+      `Found ${res.total} items (${res.duplicates} duplicates).`,
+      'success'
+    );
+  } catch (e) {
+    setStatus('Scan failed: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+/* ── Render results ───────────────────────────────────────── */
+function renderResults(res) {
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('results-panel').classList.remove('hidden');
+
+  // Stats bar
+  const statsBar = document.getElementById('stats-bar');
+  let statsHtml = `<span class="stat">Total: ${res.total}</span>`;
+  for (const [type, count] of Object.entries(res.type_counts)) {
+    statsHtml += `<span class="stat">${type}: ${count}</span>`;
+  }
+  if (res.duplicates > 0) {
+    statsHtml += `<span class="stat" style="color:var(--orange)">Duplicates: ${res.duplicates}</span>`;
+  }
+  statsBar.innerHTML = statsHtml;
+
+  // Table
+  const tbody = document.getElementById('items-tbody');
+  tbody.innerHTML = '';
+  for (const item of res.items) {
+    const tr = document.createElement('tr');
+    if (item.is_duplicate) tr.classList.add('duplicate');
+
+    const typeClass = typeBadgeClass(item.content_type);
+    const checked = !item.is_duplicate ? 'checked' : '';
+    const statusText = item.is_duplicate
+      ? '<span style="color:var(--orange)">Duplicate</span>'
+      : '<span style="color:var(--green)">New</span>';
+
+    tr.innerHTML = `
+      <td><input type="checkbox" class="item-cb" data-sc="${esc(item.shortcode)}" ${checked} onchange="updateCount()"></td>
+      <td class="shortcode-cell" title="${esc(item.shortcode)}">${esc(item.shortcode)}</td>
+      <td>${esc(item.username)}</td>
+      <td><span class="type-badge ${typeClass}">${esc(item.content_type)}</span></td>
+      <td>${esc(item.category)}</td>
+      <td>${esc(item.wpas_code)}</td>
+      <td>${esc(item.batch)}</td>
+      <td>${esc(item.date_posted)}</td>
+      <td>${esc(item.media_type)}</td>
+      <td>${item.file_count}</td>
+      <td>${statusText}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  updateCount();
+}
+
+function typeBadgeClass(type) {
+  if (type === 'Story') return 'type-Story';
+  if (type === 'Post') return 'type-Post';
+  if (type === 'Profile') return 'type-Profile';
+  if (type === 'Comment Thread') return 'type-Comment';
+  if (type === 'Story Collection') return 'type-Collection';
+  return '';
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* ── Checkbox management ──────────────────────────────────── */
+function getChecked() {
+  return [...document.querySelectorAll('.item-cb:checked')].map(cb => cb.dataset.sc);
+}
+
+function updateCount() {
+  const checked = getChecked();
+  document.getElementById('selected-count').textContent = checked.length + ' selected';
+  const btn = document.getElementById('btn-archive');
+  btn.textContent = `Archive ${checked.length} items`;
+  btn.disabled = checked.length === 0;
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('.item-cb').forEach(cb => { cb.checked = checked; });
+  updateCount();
+}
+
+function selectAllNew() {
+  document.querySelectorAll('.item-cb').forEach(cb => {
+    cb.checked = !cb.closest('tr').classList.contains('duplicate');
+  });
+  document.getElementById('select-all').checked = false;
+  updateCount();
+}
+
+function deselectAll() {
+  document.querySelectorAll('.item-cb').forEach(cb => { cb.checked = false; });
+  document.getElementById('select-all').checked = false;
+  updateCount();
+}
+
+/* ── Archive ──────────────────────────────────────────────── */
+async function archiveSelected() {
+  const shortcodes = getChecked();
+  if (shortcodes.length === 0) return;
+  const btn = document.getElementById('btn-archive');
+  btn.disabled = true;
+  setStatus(`Archiving ${shortcodes.length} items...`, 'loading');
+  try {
+    const res = await api('/api/archive', { shortcodes });
+    if (res.ok) {
+      setStatus(res.message, 'success');
+      document.getElementById('results-panel').classList.add('hidden');
+      document.getElementById('empty-state').classList.remove('hidden');
+      state.items = [];
+    } else {
+      setStatus(res.message, 'error');
+    }
+  } catch (e) {
+    setStatus('Archive failed: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
