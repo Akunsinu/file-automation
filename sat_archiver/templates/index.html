@@ -165,9 +165,20 @@
 <!-- Header -->
 <div class="header">
   <h1>SAT Archiver</h1>
-  <span class="badge badge-source" id="source-badge">
-    {{ source_folder if source_folder else "No source folder detected" }}
-  </span>
+  <select id="folder-select" style="
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; max-width: 400px;
+    outline: none; cursor: pointer;
+  ">
+    {% if folders %}
+      {% for f in folders %}
+      <option value="{{ f.path }}" {% if f.path == default_folder %}selected{% endif %}>{{ f.name }}</option>
+      {% endfor %}
+    {% else %}
+      <option value="" disabled selected>No SAT Daily folders found</option>
+    {% endif %}
+  </select>
+  <button onclick="refreshFolders()" title="Refresh folder list" style="padding: 6px 10px; font-size: 13px;">&#x21bb;</button>
 </div>
 
 <!-- Main Content -->
@@ -328,6 +339,36 @@ async function testConnection() {
   btn.disabled = false;
 }
 
+/* ── Folder picker ────────────────────────────────────────── */
+async function refreshFolders() {
+  setStatus('Refreshing folder list...', 'loading');
+  try {
+    const resp = await fetch('/api/folders');
+    const res = await resp.json();
+    const sel = document.getElementById('folder-select');
+    sel.innerHTML = '';
+    if (res.folders && res.folders.length > 0) {
+      for (const f of res.folders) {
+        const opt = document.createElement('option');
+        opt.value = f.path;
+        opt.textContent = f.name;
+        if (f.path === res.default) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.disabled = true;
+      opt.selected = true;
+      opt.textContent = 'No SAT Daily folders found';
+      sel.appendChild(opt);
+    }
+    setStatus('Folder list refreshed.', 'success');
+  } catch (e) {
+    setStatus('Failed to refresh folders: ' + e.message, 'error');
+  }
+}
+
 /* ── Scan ─────────────────────────────────────────────────── */
 async function scanFolder() {
   const initials = document.getElementById('initials').value.trim();
@@ -335,11 +376,16 @@ async function scanFolder() {
     setStatus('Please enter your initials.', 'error');
     return;
   }
+  const folder = document.getElementById('folder-select').value;
+  if (!folder) {
+    setStatus('No folder selected.', 'error');
+    return;
+  }
   const btn = document.getElementById('btn-scan');
   btn.disabled = true;
   setStatus('Scanning folder...', 'loading');
   try {
-    const res = await api('/api/scan', { initials });
+    const res = await api('/api/scan', { initials, folder });
     if (!res.ok) {
       setStatus(res.message, 'error');
       btn.disabled = false;

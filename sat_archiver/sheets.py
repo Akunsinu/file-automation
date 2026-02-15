@@ -17,7 +17,17 @@ def test_connection(url: str) -> tuple[str | None, str | None]:
     try:
         req = urllib.request.Request(f"{url}?action=test")
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
+            body = resp.read().decode()
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            if "<html" in body.lower():
+                return None, (
+                    "Google returned an HTML page instead of JSON. "
+                    "Make sure the Apps Script is deployed as a Web app "
+                    'with access set to "Anyone".'
+                )
+            return None, "Apps Script returned invalid JSON."
         if data.get("ok"):
             count = data.get("count", 0)
             return f"Connected. {count} existing entries in sheet.", None

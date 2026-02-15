@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import json
 import webbrowser
 from pathlib import Path
@@ -9,7 +10,7 @@ from threading import Timer
 
 from flask import Flask, jsonify, render_template, request
 
-from .config import ARCHIVE_ROOT
+from .config import ARCHIVE_ROOT, SOURCE_GLOB
 from .main import find_latest_source_folder, load_config
 from .mover import move_items
 from .scanner import scan_folder
@@ -43,17 +44,36 @@ def _save_config(data: dict) -> None:
         f.write("\n")
 
 
+def _list_folders() -> list[dict]:
+    """Return all SAT Daily folders sorted newest-first."""
+    paths = sorted(glob.glob(SOURCE_GLOB), reverse=True)
+    return [{"path": p, "name": Path(p).name} for p in paths if Path(p).is_dir()]
+
+
 @app.route("/")
 def index():
     config = load_config(CONFIG_PATH)
-    source = find_latest_source_folder()
+    folders = _list_folders()
+    latest = find_latest_source_folder()
     return render_template(
         "index.html",
         apps_script_url=config.get("apps_script_url", ""),
         default_initials=config.get("default_initials", ""),
-        source_folder=str(source) if source else "",
+        folders=folders,
+        default_folder=str(latest) if latest else "",
         archive_root=str(ARCHIVE_ROOT),
     )
+
+
+@app.route("/api/folders")
+def api_folders():
+    folders = _list_folders()
+    latest = find_latest_source_folder()
+    return jsonify({
+        "ok": True,
+        "folders": folders,
+        "default": str(latest) if latest else "",
+    })
 
 
 @app.route("/api/settings", methods=["POST"])
@@ -86,7 +106,17 @@ def scan():
     if not initials:
         return jsonify({"ok": False, "message": "Initials are required."}), 400
 
-    source = find_latest_source_folder()
+    # Use explicitly selected folder, or fall back to latest
+    folder_path = data.get("folder", "").strip()
+    if folder_path:
+        source = Path(folder_path)
+        if not source.is_dir():
+            return jsonify({
+                "ok": False,
+                "message": f"Selected folder does not exist: {folder_path}",
+            }), 400
+    else:
+        source = find_latest_source_folder()
     if not source:
         return jsonify({
             "ok": False,
