@@ -8,49 +8,90 @@
  *   4. Click Deploy > New deployment
  *   5. Type: Web app, Execute as: Me, Who has access: Anyone
  *   6. Copy the URL and paste it into SAT Archiver settings
+ *
+ * Sheet must have two tabs: "Stories" and "P&V Manual Backup"
  */
 
-// Must match SHEET_HEADERS in config.py
+// Must match SHEET_HEADERS in config.py (37 columns, A-AK)
 var HEADERS = [
+  "Timestamp",
   "Shortcode",
+  "Real Name",
   "Username",
-  "Full Name",
-  "Content Type",
-  "Category",
-  "WPAS Code",
-  "Date Posted",
-  "Media Type",
-  "Like Count",
-  "Comment Count",
-  "Caption",
-  "Post URL",
-  "Batch",
-  "Section",
-  "Archiver Initials",
-  "Archive Date",
-  "Destination Path"
+  "Post Type",
+  "Downloader",
+  "Post Date",
+  "Collaborators",
+  "Manual Notes",
+  "DB Link",
+  "Paired Content",
+  "Stories Reshare Links",
+  "Primary Beginning Tags",
+  "Secondary Beginning Tags",
+  "General Triggers",
+  "Sheet Categories",
+  "Books",
+  "Conditions",
+  "Emotional Support",
+  "Fear",
+  "Food",
+  "Healing Stories",
+  "Healing Tools",
+  "Healing Tools More",
+  "History",
+  "Miscellaneous",
+  "MM Science",
+  "Other",
+  "PW Trends",
+  "Resources",
+  "Supporting",
+  "MO-Publication",
+  "MO-PW",
+  "MO-RPT",
+  "MO-SI",
+  "MO-TS",
+  "MO-WTS"
 ];
+
+var TAB_STORIES = "Stories";
+var TAB_PV_MANUAL = "P&V Manual Backup";
 
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || "test";
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   if (action === "test") {
-    var lastRow = sheet.getLastRow();
-    var count = lastRow > 1 ? lastRow - 1 : 0; // exclude header
+    var counts = {};
+    var tabs = [TAB_STORIES, TAB_PV_MANUAL];
+    var totalCount = 0;
+    for (var t = 0; t < tabs.length; t++) {
+      var sheet = ss.getSheetByName(tabs[t]);
+      if (sheet) {
+        var lastRow = sheet.getLastRow();
+        var count = lastRow > 1 ? lastRow - 1 : 0;
+        counts[tabs[t]] = count;
+        totalCount += count;
+      }
+    }
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, count: count }))
+      .createTextOutput(JSON.stringify({ ok: true, count: totalCount, counts: counts }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
   if (action === "shortcodes") {
+    // Read shortcodes from column B (Shortcode) across BOTH tabs
     var shortcodes = [];
-    var lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = 0; i < values.length; i++) {
-        var v = values[i][0];
-        if (v) shortcodes.push(String(v));
+    var tabs = [TAB_STORIES, TAB_PV_MANUAL];
+    for (var t = 0; t < tabs.length; t++) {
+      var sheet = ss.getSheetByName(tabs[t]);
+      if (!sheet) continue;
+      var lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues(); // column B
+        for (var i = 0; i < values.length; i++) {
+          var v = values[i][0];
+          if (v) shortcodes.push(String(v));
+        }
       }
     }
     return ContentService
@@ -68,8 +109,15 @@ function doPost(e) {
     var payload = JSON.parse(e.postData.contents);
     var headers = payload.headers || HEADERS;
     var rows = payload.rows || [];
+    var tabName = payload.tab || TAB_STORIES;
 
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(tabName);
+
+    if (!sheet) {
+      // Create the tab if it doesn't exist
+      sheet = ss.insertSheet(tabName);
+    }
 
     // Ensure header row
     if (sheet.getLastRow() === 0) {
@@ -91,7 +139,7 @@ function doPost(e) {
     }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, added: rows.length }))
+      .createTextOutput(JSON.stringify({ ok: true, added: rows.length, tab: tabName }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService

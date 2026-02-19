@@ -10,7 +10,7 @@ from threading import Timer
 
 from flask import Flask, jsonify, render_template, request
 
-from .config import ARCHIVE_ROOT, SOURCE_GLOB
+from .config import ARCHIVE_ROOT, SOURCE_GLOBS
 from .main import find_latest_source_folder, load_config
 from .mover import move_items
 from .scanner import scan_folder
@@ -34,6 +34,20 @@ _state: dict = {
     "existing_shortcodes": set(),
 }
 
+# All 37 sheet fields on ContentItem (for serialization)
+_SHEET_FIELDS = [
+    "timestamp", "shortcode", "real_name", "username", "post_type",
+    "downloader", "post_date", "collaborators", "manual_notes", "db_link",
+    "paired_content", "stories_reshare_links",
+    "primary_beginning_tags", "secondary_beginning_tags",
+    "general_triggers", "sheet_categories",
+    "books", "conditions", "emotional_support", "fear", "food",
+    "healing_stories", "healing_tools", "healing_tools_more",
+    "history", "miscellaneous", "mm_science", "other",
+    "pw_trends", "resources", "supporting",
+    "mo_publication", "mo_pw", "mo_rpt", "mo_si", "mo_ts", "mo_wts",
+]
+
 
 def _save_config(data: dict) -> None:
     """Write config.json atomically."""
@@ -45,9 +59,30 @@ def _save_config(data: dict) -> None:
 
 
 def _list_folders() -> list[dict]:
-    """Return all SAT Daily folders sorted newest-first."""
-    paths = sorted(glob.glob(SOURCE_GLOB), reverse=True)
+    """Return all source folders (SAT Daily + Daily MO) sorted newest-first."""
+    paths = []
+    for pattern in SOURCE_GLOBS:
+        paths.extend(glob.glob(pattern))
+    paths = sorted(paths, reverse=True)
     return [{"path": p, "name": Path(p).name} for p in paths if Path(p).is_dir()]
+
+
+def _item_to_dict(item, existing_shortcodes: set) -> dict:
+    """Serialize a ContentItem to a JSON-safe dict."""
+    d = {}
+    for field in _SHEET_FIELDS:
+        d[field] = getattr(item, field, "")
+    # Add internal fields useful for the UI
+    d["target_tab"] = item.target_tab
+    d["batch"] = item.batch
+    d["wpas_code"] = item.wpas_code
+    d["content_section"] = item.content_section
+    d["folder_type"] = item.folder_type
+    d["file_count"] = len(item.source_files)
+    d["is_duplicate"] = item.shortcode in existing_shortcodes
+    d["resharer_username"] = item.resharer_username
+    d["resharer_name"] = item.resharer_name
+    return d
 
 
 @app.route("/")
@@ -120,7 +155,7 @@ def scan():
     if not source:
         return jsonify({
             "ok": False,
-            "message": "No SAT Daily folder found in ~/Downloads/",
+            "message": "No source folder found in ~/Downloads/",
         }), 400
 
     items = scan_folder(source)
@@ -131,7 +166,8 @@ def scan():
         }), 400
 
     for item in items:
-        item.archiver_initials = initials
+        if not item.downloader:
+            item.downloader = initials
 
     # Try to fetch existing shortcodes for dedup
     config = load_config(CONFIG_PATH)
@@ -149,22 +185,12 @@ def scan():
 
     # Build response
     type_counts: dict[str, int] = {}
+    tab_counts: dict[str, int] = {}
     items_json = []
-    for item in sorted(items, key=lambda i: (i.batch, i.content_type, i.username)):
-        type_counts[item.content_type] = type_counts.get(item.content_type, 0) + 1
-        is_dup = item.shortcode in existing_shortcodes
-        items_json.append({
-            "shortcode": item.shortcode,
-            "username": item.username,
-            "content_type": item.content_type,
-            "category": item.category,
-            "wpas_code": item.wpas_code,
-            "batch": item.batch,
-            "date_posted": item.date_posted,
-            "media_type": item.media_type,
-            "file_count": len(item.source_files),
-            "is_duplicate": is_dup,
-        })
+    for item in sorted(items, key=lambda i: (i.target_tab, i.content_section, i.post_type, i.username)):
+        type_counts[item.post_type] = type_counts.get(item.post_type, 0) + 1
+        tab_counts[item.target_tab] = tab_counts.get(item.target_tab, 0) + 1
+        items_json.append(_item_to_dict(item, existing_shortcodes))
 
     return jsonify({
         "ok": True,
@@ -172,8 +198,31 @@ def scan():
         "total": len(items),
         "duplicates": sum(1 for i in items if i.shortcode in existing_shortcodes),
         "type_counts": type_counts,
+        "tab_counts": tab_counts,
         "items": items_json,
     })
+
+
+@app.route("/api/update-item", methods=["POST"])
+def update_item():
+    """Update a single field on an in-memory ContentItem."""
+    data = request.get_json(silent=True) or {}
+    shortcode = data.get("shortcode", "")
+    field = data.get("field", "")
+    value = data.get("value", "")
+
+    if not shortcode or not field:
+        return jsonify({"ok": False, "message": "shortcode and field are required."}), 400
+
+    # Find item by shortcode
+    for item in _state["items"]:
+        if item.shortcode == shortcode:
+            if hasattr(item, field):
+                setattr(item, field, value)
+                return jsonify({"ok": True})
+            return jsonify({"ok": False, "message": f"Unknown field: {field}"}), 400
+
+    return jsonify({"ok": False, "message": f"Item not found: {shortcode}"}), 404
 
 
 @app.route("/api/archive", methods=["POST"])

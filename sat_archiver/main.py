@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import ARCHIVE_ROOT, SOURCE_GLOB
+from .config import ARCHIVE_ROOT, SOURCE_GLOBS
 from .mover import move_items
 from .scanner import scan_folder
 from .sheets import (
@@ -20,11 +20,13 @@ from .sheets import (
 
 
 def find_latest_source_folder() -> Path | None:
-    """Find the most recent SAT Daily folder by name sort."""
-    folders = sorted(glob.glob(SOURCE_GLOB), reverse=True)
-    if not folders:
+    """Find the most recent source folder (SAT Daily or Daily MO) by name sort."""
+    all_folders = []
+    for pattern in SOURCE_GLOBS:
+        all_folders.extend(glob.glob(pattern))
+    if not all_folders:
         return None
-    return Path(folders[0])
+    return Path(sorted(all_folders, reverse=True)[0])
 
 
 def load_config(config_path: Path) -> dict:
@@ -39,7 +41,7 @@ def print_preview(items, label: str = "Items") -> None:
     """Print a summary table of discovered items."""
     type_counts: dict[str, int] = {}
     for item in items:
-        type_counts[item.content_type] = type_counts.get(item.content_type, 0) + 1
+        type_counts[item.post_type] = type_counts.get(item.post_type, 0) + 1
 
     print(f"\n{'='*70}")
     print(f"  {label}: {len(items)} total")
@@ -47,13 +49,13 @@ def print_preview(items, label: str = "Items") -> None:
         print(f"    {ct}: {count}")
     print(f"{'='*70}")
 
-    print(f"\n{'Shortcode':<35} {'Type':<18} {'User':<25} {'Batch'}")
-    print("-" * 100)
-    for item in sorted(items, key=lambda i: (i.batch, i.content_type, i.username)):
+    print(f"\n{'Shortcode':<35} {'Type':<18} {'User':<25} {'Tab':<22} {'Section'}")
+    print("-" * 110)
+    for item in sorted(items, key=lambda i: (i.target_tab, i.post_type, i.username)):
         sc = item.shortcode
         if len(sc) > 33:
             sc = sc[:30] + "..."
-        print(f"  {sc:<33} {item.content_type:<18} {item.username:<25} {item.batch}")
+        print(f"  {sc:<33} {item.post_type:<18} {item.username:<25} {item.target_tab:<22} {item.content_section}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--folder",
         type=Path,
-        help="Source folder to scan (default: latest SAT Daily folder)",
+        help="Source folder to scan (default: latest source folder)",
     )
     parser.add_argument(
         "--dry-run",
@@ -91,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     if source_dir is None:
         source_dir = find_latest_source_folder()
         if source_dir is None:
-            print("Error: No SAT Daily folder found in ~/Downloads/")
+            print("Error: No source folder found in ~/Downloads/")
             return 1
 
     if not source_dir.is_dir():
@@ -117,9 +119,10 @@ def main(argv: list[str] | None = None) -> int:
         print("No content items found.")
         return 0
 
-    # Set initials on all items
+    # Set downloader on all items (if not already set by scanner)
     for item in items:
-        item.archiver_initials = initials
+        if not item.downloader:
+            item.downloader = initials
 
     # ── Deduplicate against Google Sheet ──────────────────────────────────
     apps_script_url = args.apps_script_url or config.get("apps_script_url", "")

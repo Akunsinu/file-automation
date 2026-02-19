@@ -22,6 +22,9 @@
     --badge-profile: #e0a050;
     --badge-comment: #e05555;
     --badge-collection: #b06ce0;
+    --badge-ve: #50b0e0;
+    --tab-stories: #6c7ee1;
+    --tab-pv: #4caf82;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -31,20 +34,13 @@
     display: flex; flex-direction: column;
   }
 
-  /* Header */
   .header {
     background: var(--surface); border-bottom: 1px solid var(--border);
     padding: 16px 24px; display: flex; align-items: center; gap: 16px;
   }
   .header h1 { font-size: 20px; font-weight: 600; }
-  .badge {
-    display: inline-block; padding: 3px 10px; border-radius: 12px;
-    font-size: 12px; font-weight: 500;
-  }
-  .badge-source { background: var(--surface2); color: var(--text-dim); }
 
-  /* Main */
-  .main { flex: 1; padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+  .main { flex: 1; padding: 24px; max-width: 1400px; width: 100%; margin: 0 auto; }
   .panel {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; margin-bottom: 16px;
@@ -59,7 +55,6 @@
   .panel-body { padding: 16px; }
   .panel-body.collapsed { display: none; }
 
-  /* Form elements */
   .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
   .form-group { display: flex; flex-direction: column; gap: 4px; }
   .form-group.flex-1 { flex: 1; min-width: 200px; }
@@ -70,6 +65,11 @@
   }
   input[type="text"]:focus { border-color: var(--accent); }
   input[type="text"]::placeholder { color: var(--text-dim); opacity: 0.5; }
+  select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
   button {
     padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
     background: var(--surface2); color: var(--text); font-size: 13px;
@@ -81,9 +81,7 @@
   button.primary:hover { background: var(--accent-hover); }
   button.primary:disabled { background: var(--accent); }
   button.danger { background: var(--red); border-color: var(--red); color: #fff; }
-  button.danger:hover { opacity: 0.9; }
 
-  /* Stats bar */
   .stats-bar {
     display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px;
     border-bottom: 1px solid var(--border);
@@ -93,7 +91,13 @@
     background: var(--surface2);
   }
 
-  /* Table */
+  .filter-bar {
+    display: flex; gap: 8px; padding: 12px 16px; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-bar button { padding: 4px 12px; font-size: 12px; }
+  .filter-bar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
@@ -104,6 +108,7 @@
   }
   tbody td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
   tbody tr:hover { background: var(--surface2); }
+  tbody tr.summary-row { cursor: pointer; }
   tr.duplicate { opacity: 0.55; }
   tr.duplicate td:nth-child(2) { text-decoration: line-through; }
 
@@ -116,8 +121,48 @@
   .type-Profile { background: rgba(224,160,80,0.15); color: var(--badge-profile); }
   .type-Comment { background: rgba(224,85,85,0.15); color: var(--badge-comment); }
   .type-Collection { background: rgba(176,108,224,0.15); color: var(--badge-collection); }
+  .type-VE { background: rgba(80,176,224,0.15); color: var(--badge-ve); }
 
-  /* Table actions */
+  .tab-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+  }
+  .tab-Stories { background: rgba(108,126,225,0.15); color: var(--tab-stories); }
+  .tab-PV { background: rgba(76,175,130,0.15); color: var(--tab-pv); }
+
+  /* Detail row */
+  tr.detail-row { display: none; }
+  tr.detail-row.open { display: table-row; }
+  tr.detail-row td { padding: 0; }
+  .detail-content {
+    padding: 16px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; margin: 4px 12px 12px;
+  }
+  .detail-section { margin-bottom: 16px; }
+  .detail-section:last-child { margin-bottom: 0; }
+  .detail-section h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-dim); margin-bottom: 8px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+  .detail-field {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .detail-field label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .detail-field select, .detail-field input[type="text"] {
+    font-size: 12px; padding: 4px 8px;
+  }
+  .detail-field .value {
+    font-size: 13px; color: var(--text); padding: 4px 0;
+    word-break: break-all;
+  }
+
   .table-actions {
     padding: 12px 16px; display: flex; gap: 8px; align-items: center;
     border-top: 1px solid var(--border);
@@ -125,7 +170,6 @@
   .table-actions .spacer { flex: 1; }
   .selected-count { font-size: 13px; color: var(--text-dim); }
 
-  /* Status bar */
   .status-bar {
     background: var(--surface); border-top: 1px solid var(--border);
     padding: 10px 24px; font-size: 13px; color: var(--text-dim);
@@ -142,7 +186,6 @@
   .status-bar.loading .spinner { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Checkbox */
   input[type="checkbox"] {
     width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
   }
@@ -165,17 +208,13 @@
 <!-- Header -->
 <div class="header">
   <h1>SAT Archiver</h1>
-  <select id="folder-select" style="
-    background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 10px; font-size: 13px; max-width: 400px;
-    outline: none; cursor: pointer;
-  ">
+  <select id="folder-select" style="max-width: 400px;">
     {% if folders %}
       {% for f in folders %}
       <option value="{{ f.path }}" {% if f.path == default_folder %}selected{% endif %}>{{ f.name }}</option>
       {% endfor %}
     {% else %}
-      <option value="" disabled selected>No SAT Daily folders found</option>
+      <option value="" disabled selected>No source folders found</option>
     {% endif %}
   </select>
   <button onclick="refreshFolders()" title="Refresh folder list" style="padding: 6px 10px; font-size: 13px;">&#x21bb;</button>
@@ -232,9 +271,16 @@
     <div class="panel-header" style="cursor: default;">
       <h2>Scan Results</h2>
     </div>
-    <!-- Stats bar -->
     <div class="stats-bar" id="stats-bar"></div>
-    <!-- Table -->
+    <!-- Filter bar -->
+    <div class="filter-bar" id="filter-bar">
+      <span style="font-size: 12px; color: var(--text-dim);">Filter:</span>
+      <button class="active" onclick="filterItems('all')" data-filter="all">All</button>
+      <button onclick="filterItems('Stories')" data-filter="Stories">Stories Tab</button>
+      <button onclick="filterItems('P&V Manual Backup')" data-filter="P&V Manual Backup">P&V Tab</button>
+      <button onclick="filterItems('Story')" data-filter="Story">Stories</button>
+      <button onclick="filterItems('Post')" data-filter="Post">Posts</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -242,20 +288,17 @@
             <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleAll(this.checked)"></th>
             <th>Shortcode</th>
             <th>Username</th>
+            <th>Real Name</th>
             <th>Type</th>
-            <th>Category</th>
-            <th>WPAS</th>
-            <th>Batch</th>
+            <th>Downloader</th>
             <th>Date</th>
-            <th>Media</th>
-            <th>Files</th>
+            <th>Tab</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody id="items-tbody"></tbody>
       </table>
     </div>
-    <!-- Table actions -->
     <div class="table-actions">
       <button onclick="selectAllNew()">Select All New</button>
       <button onclick="deselectAll()">Deselect All</button>
@@ -265,7 +308,7 @@
     </div>
   </div>
 
-  <!-- Empty state (before scan) -->
+  <!-- Empty state -->
   <div id="empty-state" class="empty-state">
     <p>Enter your initials and click <strong>Scan Folder</strong> to discover content items.</p>
   </div>
@@ -279,7 +322,54 @@
 </div>
 
 <script>
-const state = { items: [] };
+const state = { items: [], filter: 'all' };
+
+/* Dropdown value options for content category and MO columns */
+const DROPDOWN_FIELDS = {
+  // Tags
+  primary_beginning_tags: [],
+  secondary_beginning_tags: [],
+  general_triggers: [],
+  sheet_categories: [],
+  // Content categories (Q-AE)
+  books: [],
+  conditions: [],
+  emotional_support: [],
+  fear: [],
+  food: [],
+  healing_stories: [],
+  healing_tools: [],
+  healing_tools_more: [],
+  history: [],
+  miscellaneous: [],
+  mm_science: [],
+  other: [],
+  pw_trends: [],
+  resources: [],
+  supporting: [],
+  // MO columns (AF-AK)
+  mo_publication: [],
+  mo_pw: [],
+  mo_rpt: [],
+  mo_si: [],
+  mo_ts: [],
+  mo_wts: [],
+};
+
+/* Human-readable labels for fields */
+const FIELD_LABELS = {
+  primary_beginning_tags: 'Primary Beginning Tags',
+  secondary_beginning_tags: 'Secondary Beginning Tags',
+  general_triggers: 'General Triggers',
+  sheet_categories: 'Sheet Categories',
+  books: 'Books', conditions: 'Conditions', emotional_support: 'Emotional Support',
+  fear: 'Fear', food: 'Food', healing_stories: 'Healing Stories',
+  healing_tools: 'Healing Tools', healing_tools_more: 'Healing Tools More',
+  history: 'History', miscellaneous: 'Miscellaneous', mm_science: 'MM Science',
+  other: 'Other', pw_trends: 'PW Trends', resources: 'Resources', supporting: 'Supporting',
+  mo_publication: 'MO-Publication', mo_pw: 'MO-PW', mo_rpt: 'MO-RPT',
+  mo_si: 'MO-SI', mo_ts: 'MO-TS', mo_wts: 'MO-WTS',
+};
 
 /* ── Panel toggle ─────────────────────────────────────────── */
 function togglePanel(id) {
@@ -360,7 +450,7 @@ async function refreshFolders() {
       opt.value = '';
       opt.disabled = true;
       opt.selected = true;
-      opt.textContent = 'No SAT Daily folders found';
+      opt.textContent = 'No source folders found';
       sel.appendChild(opt);
     }
     setStatus('Folder list refreshed.', 'success');
@@ -392,6 +482,7 @@ async function scanFolder() {
       return;
     }
     state.items = res.items;
+    state.filter = 'all';
     renderResults(res);
     setStatus(
       `Found ${res.total} items (${res.duplicates} duplicates).`,
@@ -414,40 +505,179 @@ function renderResults(res) {
   for (const [type, count] of Object.entries(res.type_counts)) {
     statsHtml += `<span class="stat">${type}: ${count}</span>`;
   }
+  if (res.tab_counts) {
+    for (const [tab, count] of Object.entries(res.tab_counts)) {
+      const label = tab === 'Stories' ? 'Stories Tab' : 'P&V Tab';
+      statsHtml += `<span class="stat">${label}: ${count}</span>`;
+    }
+  }
   if (res.duplicates > 0) {
     statsHtml += `<span class="stat" style="color:var(--orange)">Duplicates: ${res.duplicates}</span>`;
   }
   statsBar.innerHTML = statsHtml;
 
-  // Table
+  // Reset filter buttons
+  document.querySelectorAll('#filter-bar button').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === 'all');
+  });
+
+  renderTable();
+}
+
+function renderTable() {
   const tbody = document.getElementById('items-tbody');
   tbody.innerHTML = '';
-  for (const item of res.items) {
-    const tr = document.createElement('tr');
-    if (item.is_duplicate) tr.classList.add('duplicate');
 
-    const typeClass = typeBadgeClass(item.content_type);
+  for (const item of state.items) {
+    // Apply filter
+    if (state.filter !== 'all') {
+      if (state.filter === 'Stories' || state.filter === 'P&V Manual Backup') {
+        if (item.target_tab !== state.filter) continue;
+      } else {
+        if (item.post_type !== state.filter) continue;
+      }
+    }
+
+    // Summary row
+    const tr = document.createElement('tr');
+    tr.className = 'summary-row' + (item.is_duplicate ? ' duplicate' : '');
+    tr.dataset.sc = item.shortcode;
+
+    const typeClass = typeBadgeClass(item.post_type);
     const checked = !item.is_duplicate ? 'checked' : '';
     const statusText = item.is_duplicate
       ? '<span style="color:var(--orange)">Duplicate</span>'
       : '<span style="color:var(--green)">New</span>';
+    const tabLabel = item.target_tab === 'Stories' ? 'Stories' : 'P&V';
+    const tabClass = item.target_tab === 'Stories' ? 'tab-Stories' : 'tab-PV';
 
     tr.innerHTML = `
-      <td><input type="checkbox" class="item-cb" data-sc="${esc(item.shortcode)}" ${checked} onchange="updateCount()"></td>
+      <td><input type="checkbox" class="item-cb" data-sc="${esc(item.shortcode)}" ${checked} onchange="updateCount()" onclick="event.stopPropagation()"></td>
       <td class="shortcode-cell" title="${esc(item.shortcode)}">${esc(item.shortcode)}</td>
       <td>${esc(item.username)}</td>
-      <td><span class="type-badge ${typeClass}">${esc(item.content_type)}</span></td>
-      <td>${esc(item.category)}</td>
-      <td>${esc(item.wpas_code)}</td>
-      <td>${esc(item.batch)}</td>
-      <td>${esc(item.date_posted)}</td>
-      <td>${esc(item.media_type)}</td>
-      <td>${item.file_count}</td>
+      <td>${esc(item.real_name)}</td>
+      <td><span class="type-badge ${typeClass}">${esc(item.post_type)}</span></td>
+      <td>${esc(item.downloader)}</td>
+      <td>${esc(item.post_date)}</td>
+      <td><span class="tab-badge ${tabClass}">${tabLabel}</span></td>
       <td>${statusText}</td>
     `;
+    tr.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      toggleDetail(item.shortcode);
+    });
     tbody.appendChild(tr);
+
+    // Detail row
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'detail-row';
+    detailTr.id = 'detail-' + item.shortcode;
+    detailTr.innerHTML = `<td colspan="9">${buildDetailContent(item)}</td>`;
+    tbody.appendChild(detailTr);
   }
   updateCount();
+}
+
+function buildDetailContent(item) {
+  let html = '<div class="detail-content">';
+
+  // Info section
+  html += '<div class="detail-section"><h4>Info</h4><div class="detail-grid">';
+  html += infoField('Post Date', item.post_date);
+  html += infoField('Collaborators', item.collaborators);
+  html += infoField('DB Link', item.db_link);
+  html += infoField('Batch', item.batch);
+  html += infoField('WPAS Code', item.wpas_code);
+  html += infoField('Section', item.content_section);
+  html += infoField('Folder Type', item.folder_type);
+  html += infoField('Files', item.file_count);
+  if (item.resharer_username) {
+    html += infoField('Resharer', `${item.resharer_name} (@${item.resharer_username})`);
+  }
+  html += editableTextField(item, 'manual_notes', 'Manual Notes');
+  html += editableTextField(item, 'paired_content', 'Paired Content');
+  html += editableTextField(item, 'stories_reshare_links', 'Stories Reshare Links');
+  html += '</div></div>';
+
+  // Tags section
+  html += '<div class="detail-section"><h4>Tags</h4><div class="detail-grid">';
+  for (const f of ['primary_beginning_tags', 'secondary_beginning_tags', 'general_triggers', 'sheet_categories']) {
+    html += dropdownField(item, f);
+  }
+  html += '</div></div>';
+
+  // Content Categories section
+  html += '<div class="detail-section"><h4>Content Categories</h4><div class="detail-grid">';
+  for (const f of ['books', 'conditions', 'emotional_support', 'fear', 'food',
+    'healing_stories', 'healing_tools', 'healing_tools_more', 'history',
+    'miscellaneous', 'mm_science', 'other', 'pw_trends', 'resources', 'supporting']) {
+    html += dropdownField(item, f);
+  }
+  html += '</div></div>';
+
+  // MO Columns section
+  html += '<div class="detail-section"><h4>MO Columns</h4><div class="detail-grid">';
+  for (const f of ['mo_publication', 'mo_pw', 'mo_rpt', 'mo_si', 'mo_ts', 'mo_wts']) {
+    html += dropdownField(item, f);
+  }
+  html += '</div></div>';
+
+  html += '</div>';
+  return html;
+}
+
+function infoField(label, value) {
+  return `<div class="detail-field"><label>${label}</label><div class="value">${esc(String(value || ''))}</div></div>`;
+}
+
+function editableTextField(item, field, label) {
+  const val = item[field] || '';
+  return `<div class="detail-field">
+    <label>${label}</label>
+    <input type="text" value="${esc(val)}" onchange="updateItemField('${esc(item.shortcode)}', '${field}', this.value)"
+      style="font-size: 12px; padding: 4px 8px;">
+  </div>`;
+}
+
+function dropdownField(item, field) {
+  const val = item[field] || '';
+  const label = FIELD_LABELS[field] || field;
+  // Editable text input (since dropdown options are dynamic/user-defined)
+  const highlight = val ? 'border-color: var(--accent);' : '';
+  return `<div class="detail-field">
+    <label>${label}</label>
+    <input type="text" value="${esc(val)}"
+      style="font-size: 12px; padding: 4px 8px; ${highlight}"
+      onchange="updateItemField('${esc(item.shortcode)}', '${field}', this.value)"
+      placeholder="&mdash;">
+  </div>`;
+}
+
+function toggleDetail(shortcode) {
+  const row = document.getElementById('detail-' + shortcode);
+  if (row) row.classList.toggle('open');
+}
+
+async function updateItemField(shortcode, field, value) {
+  // Update local state
+  const item = state.items.find(i => i.shortcode === shortcode);
+  if (item) item[field] = value;
+
+  // Persist to server
+  try {
+    await api('/api/update-item', { shortcode, field, value });
+  } catch (e) {
+    setStatus(`Failed to update ${field}: ${e.message}`, 'error');
+  }
+}
+
+/* ── Filtering ────────────────────────────────────────────── */
+function filterItems(filter) {
+  state.filter = filter;
+  document.querySelectorAll('#filter-bar button').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === filter);
+  });
+  renderTable();
 }
 
 function typeBadgeClass(type) {
@@ -456,6 +686,7 @@ function typeBadgeClass(type) {
   if (type === 'Profile') return 'type-Profile';
   if (type === 'Comment Thread') return 'type-Comment';
   if (type === 'Story Collection') return 'type-Collection';
+  if (type === 'VE') return 'type-VE';
   return '';
 }
 
