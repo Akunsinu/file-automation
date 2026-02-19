@@ -8,7 +8,7 @@ import webbrowser
 from pathlib import Path
 from threading import Timer
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file, abort
 
 from .config import ARCHIVE_ROOT, SOURCE_GLOBS
 from .main import find_latest_source_folder, load_config
@@ -79,6 +79,7 @@ def _item_to_dict(item, existing_shortcodes: set) -> dict:
     d["content_section"] = item.content_section
     d["folder_type"] = item.folder_type
     d["file_count"] = len(item.source_files)
+    d["files"] = [str(f) for f in item.source_files]
     d["is_duplicate"] = item.shortcode in existing_shortcodes
     d["resharer_username"] = item.resharer_username
     d["resharer_name"] = item.resharer_name
@@ -223,6 +224,25 @@ def update_item():
             return jsonify({"ok": False, "message": f"Unknown field: {field}"}), 400
 
     return jsonify({"ok": False, "message": f"Item not found: {shortcode}"}), 404
+
+
+@app.route("/api/file")
+def serve_file():
+    """Serve a source file for preview. Only files belonging to scanned items."""
+    file_path = request.args.get("path", "")
+    if not file_path:
+        abort(400)
+
+    p = Path(file_path)
+    if not p.is_file():
+        abort(404)
+
+    # Validate the file belongs to a scanned item
+    valid_files = {str(f) for item in _state["items"] for f in item.source_files}
+    if file_path not in valid_files:
+        abort(403)
+
+    return send_file(p)
 
 
 @app.route("/api/archive", methods=["POST"])

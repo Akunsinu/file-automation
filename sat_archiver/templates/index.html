@@ -163,6 +163,35 @@
     word-break: break-all;
   }
 
+  .preview-grid {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;
+  }
+  .preview-thumb {
+    position: relative; border-radius: 6px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--bg);
+    cursor: pointer; transition: border-color 0.15s;
+  }
+  .preview-thumb:hover { border-color: var(--accent); }
+  .preview-thumb img, .preview-thumb video {
+    display: block; height: 120px; width: auto; max-width: 200px;
+    object-fit: cover;
+  }
+  .preview-thumb .file-label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,.7); color: #fff;
+    font-size: 9px; padding: 2px 5px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .preview-lightbox {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,.85); display: flex;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .preview-lightbox img, .preview-lightbox video {
+    max-width: 90vw; max-height: 90vh; border-radius: 8px;
+  }
+
   .table-actions {
     padding: 12px 16px; display: flex; gap: 8px; align-items: center;
     border-top: 1px solid var(--border);
@@ -599,6 +628,40 @@ function buildDetailContent(item) {
   html += editableTextField(item, 'stories_reshare_links', 'Stories Reshare Links');
   html += '</div></div>';
 
+  // File preview section — show only raw (stories) or media (posts) files
+  if (item.files && item.files.length > 0) {
+    const previewFiles = item.files.filter(f => {
+      const name = f.split('/').pop().toLowerCase();
+      // Stories: only the raw file
+      if (name.includes('_raw.')) return true;
+      // Posts: only files inside /media/ folder
+      if (f.includes('/media/')) return true;
+      // VE, Profile: single files — show them
+      if (['ve', 'profile'].includes((item.post_type || '').toLowerCase())) return true;
+      return false;
+    });
+    if (previewFiles.length > 0) {
+      html += `<div class="detail-section"><h4>Preview (${previewFiles.length} of ${item.files.length} files)</h4><div class="preview-grid">`;
+      for (const f of previewFiles) {
+        const name = f.split('/').pop();
+        const ext = name.split('.').pop().toLowerCase();
+        const src = `/api/file?path=${encodeURIComponent(f)}`;
+        if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+          html += `<div class="preview-thumb" onclick="openLightbox('${esc(src)}', 'img')">
+            <img src="${esc(src)}" loading="lazy" alt="${esc(name)}">
+            <span class="file-label">${esc(name)}</span>
+          </div>`;
+        } else if (['mp4', 'mov', 'webm'].includes(ext)) {
+          html += `<div class="preview-thumb" onclick="openLightbox('${esc(src)}', 'video')">
+            <video src="${esc(src)}" muted preload="metadata"></video>
+            <span class="file-label">${esc(name)}</span>
+          </div>`;
+        }
+      }
+      html += '</div></div>';
+    }
+  }
+
   // Tags section
   html += '<div class="detail-section"><h4>Tags</h4><div class="detail-grid">';
   for (const f of ['primary_beginning_tags', 'secondary_beginning_tags', 'general_triggers', 'sheet_categories']) {
@@ -656,6 +719,20 @@ function dropdownField(item, field) {
 function toggleDetail(shortcode) {
   const row = document.getElementById('detail-' + shortcode);
   if (row) row.classList.toggle('open');
+}
+
+function openLightbox(src, type) {
+  const lb = document.createElement('div');
+  lb.className = 'preview-lightbox';
+  if (type === 'video') {
+    lb.innerHTML = `<video src="${src}" controls autoplay style="max-width:90vw;max-height:90vh;border-radius:8px;"></video>`;
+  } else {
+    lb.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:8px;">`;
+  }
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb) lb.remove();
+  });
+  document.body.appendChild(lb);
 }
 
 async function updateItemField(shortcode, field, value) {
