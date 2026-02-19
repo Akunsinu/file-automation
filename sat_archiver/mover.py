@@ -11,6 +11,9 @@ from .models import ContentItem
 def move_items(items: list[ContentItem], dry_run: bool = False) -> tuple[int, int]:
     """Move all content items to their destination paths.
 
+    Destination is a category folder (e.g. username/Posts, username/Stories).
+    All files are moved directly into that folder — no per-item subfolders.
+
     Returns (success_count, error_count).
     """
     success = 0
@@ -20,14 +23,11 @@ def move_items(items: list[ContentItem], dry_run: bool = False) -> tuple[int, in
         try:
             dest = Path(item.destination_path)
             if dry_run:
-                print(f"  [DRY RUN] Would move -> {dest}")
+                print(f"  [DRY RUN] Would move {len(item.source_files)} files -> {dest}")
                 success += 1
                 continue
 
-            if item.is_folder_item:
-                _move_folder(item.source_path, dest)
-            else:
-                _move_story_group(item.source_files, dest)
+            _move_files(item.source_files, dest)
             success += 1
 
         except Exception as exc:
@@ -37,20 +37,8 @@ def move_items(items: list[ContentItem], dry_run: bool = False) -> tuple[int, in
     return success, errors
 
 
-def _move_folder(source: Path, dest: Path) -> None:
-    """Move an entire folder to destination."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    if dest.exists():
-        # Append shortcode-based suffix to avoid collision
-        dest = dest.parent / f"{dest.name}_dup"
-        print(f"  Destination exists, using: {dest.name}")
-
-    shutil.move(str(source), str(dest))
-
-
-def _move_story_group(files: list[Path], dest_folder: Path) -> None:
-    """Move a group of story files into a new subfolder."""
+def _move_files(files: list[Path], dest_folder: Path) -> None:
+    """Move files directly into the destination folder."""
     dest_folder.mkdir(parents=True, exist_ok=True)
 
     for f in files:

@@ -142,7 +142,7 @@ def _scan_sat_daily_stories(stories_dir: Path, downloader: str, archive_date: st
 
     # Convert story groups into ContentItems
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / f"{group['username']}_story_{shortcode}"
+        dest = ARCHIVE_ROOT / group["username"] / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -322,7 +322,7 @@ def _scan_sat_daily_mo(mo_dir: Path, downloader: str, archive_date: str) -> list
 
     # Convert story groups
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / f"{group['username']}_story_{shortcode}"
+        dest = ARCHIVE_ROOT / group["username"] / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -464,7 +464,7 @@ def _scan_daily_mo_categories(categories_dir: Path, archive_date: str) -> list[C
 
     # Convert story groups
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / f"{group['username']}_story_{shortcode}"
+        dest = ARCHIVE_ROOT / group["username"] / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -531,7 +531,7 @@ def _scan_daily_mo_reshares(reshares_dir: Path, archive_date: str) -> list[Conte
 
     # Convert story groups
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / f"{group['username']}_story_{shortcode}"
+        dest = ARCHIVE_ROOT / group["username"] / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -692,7 +692,7 @@ def _scan_daily_mo_profile(profile_dir: Path, archive_date: str) -> list[Content
                 username = parsed["username"]
                 date_str = format_date(parsed["date_str"])
                 pseudo = generate_pseudo_shortcode(username, date_str, entry.name)
-                dest = ARCHIVE_ROOT / username / entry.name
+                dest = ARCHIVE_ROOT / username / "Profile"
 
                 items.append(ContentItem(
                     timestamp=archive_date,
@@ -728,7 +728,7 @@ def _scan_daily_mo_ve(ve_dir: Path, archive_date: str) -> list[ContentItem]:
                 full_name = parsed["full_name"]
                 date_str = parsed["date_str"]
                 pseudo = generate_pseudo_shortcode(handle, date_str, entry.name)
-                dest = ARCHIVE_ROOT / handle / entry.name
+                dest = ARCHIVE_ROOT / handle / "VE"
 
                 items.append(ContentItem(
                     timestamp=archive_date,
@@ -791,7 +791,7 @@ def _build_post_item(
         if media_files:
             db_link = str(media_files[0])
 
-    dest = ARCHIVE_ROOT / username / folder.name
+    dest = ARCHIVE_ROOT / username / "Posts"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     # Determine if paired from folder name
@@ -833,7 +833,7 @@ def _build_profile_item(
     handle = parsed["handle"]
     date_str = parsed["date_str"]
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / folder.name
+    dest = ARCHIVE_ROOT / handle / "Profile"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     return ContentItem(
@@ -868,7 +868,7 @@ def _build_comment_thread_item(
     handle = parsed["handle"]
     date_str = parsed["date_str"]
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / folder.name
+    dest = ARCHIVE_ROOT / handle / "Posts"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     paired = " - PAIRED" in folder.name
@@ -905,7 +905,7 @@ def _build_named_story_item(
     handle = parsed["handle"]
     date_str = parsed["date_str"]
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / folder.name
+    dest = ARCHIVE_ROOT / handle / "Stories"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     return ContentItem(
