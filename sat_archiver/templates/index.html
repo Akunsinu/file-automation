@@ -519,10 +519,18 @@ async function scanFolder() {
     state.items = res.items;
     state.filter = 'all';
     renderResults(res);
-    setStatus(
-      `Found ${res.total} items (${res.duplicates} duplicates).`,
-      'success'
-    );
+    // Show warnings if sheet is unreachable
+    if (res.warnings && res.warnings.length > 0) {
+      setStatus(
+        `Found ${res.total} items (${res.duplicates} duplicates). ⚠ ${res.warnings.join(' ')}`,
+        'error'
+      );
+    } else {
+      setStatus(
+        `Found ${res.total} items (${res.duplicates} duplicates).`,
+        'success'
+      );
+    }
   } catch (e) {
     setStatus('Scan failed: ' + e.message, 'error');
   }
@@ -832,7 +840,10 @@ async function archiveSelected() {
   try {
     const res = await api('/api/archive', { shortcodes });
     if (res.ok) {
-      setStatus(res.message, 'success');
+      // Determine severity: full success, partial, or full failure
+      const hasSheetErrors = res.sheet_errors && res.sheet_errors.length > 0;
+      const severity = hasSheetErrors ? 'error' : 'success';
+      setStatus(res.message, severity);
       document.getElementById('results-panel').classList.add('hidden');
       document.getElementById('empty-state').classList.remove('hidden');
       state.items = [];

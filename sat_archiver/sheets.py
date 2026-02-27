@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import time
 import urllib.request
 import urllib.error
 from collections import defaultdict
@@ -56,54 +57,93 @@ def get_existing_shortcodes(url: str) -> set[str]:
         return set()
 
 
-def log_items_to_sheet(url: str, items: list[ContentItem]) -> bool:
+def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
     """POST rows as JSON to the Apps Script URL, grouped by target tab.
 
-    Returns True if all tab writes succeed.
+    Returns dict with keys:
+        ok (bool): True if all writes succeeded.
+        rows_written (int): Total rows successfully written.
+        rows_failed (int): Total rows that failed.
+        errors (list[str]): Human-readable error messages.
     """
+    result = {"ok": True, "rows_written": 0, "rows_failed": 0, "errors": []}
+
     if not items:
-        return True
+        return result
 
     # Group items by target tab
     by_tab: dict[str, list[ContentItem]] = defaultdict(list)
     for item in items:
         by_tab[item.target_tab].append(item)
 
-    all_ok = True
-    batch_size = 10
+    batch_size = 5
+    max_retries = 3
+    delay_between_batches = 3  # seconds
 
     for tab_name, tab_items in by_tab.items():
         headers = SHEET_HEADERS_STORIES if tab_name == TAB_STORIES else SHEET_HEADERS_PV
         rows = [item.to_row() for item in tab_items]
+        total_batches = (len(rows) + batch_size - 1) // batch_size
 
-        # Send in batches to avoid Apps Script timeouts
+        # Send in batches with retries and delays
         for i in range(0, len(rows), batch_size):
             batch = rows[i : i + batch_size]
+            batch_num = i // batch_size + 1
             payload = json.dumps({
                 "headers": headers,
                 "rows": batch,
                 "tab": tab_name,
             }).encode()
 
-            try:
-                req = urllib.request.Request(
-                    url,
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    data = json.loads(resp.read().decode())
-                if data.get("ok"):
-                    print(f"  {tab_name}: batch {i // batch_size + 1} — {data.get('added', 0)} rows added.")
-                else:
-                    print(f"  Apps Script error ({tab_name}): {data.get('error', 'unknown')}")
-                    all_ok = False
-            except Exception as exc:
-                print(f"  Sheet write failed ({tab_name}, batch {i // batch_size + 1}): {exc}")
-                all_ok = False
+            success = False
+            last_error = ""
+            for attempt in range(1, max_retries + 1):
+                try:
+                    req = urllib.request.Request(
+                        url,
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        data = json.loads(resp.read().decode())
+                    if data.get("ok"):
+                        added = data.get("added", 0)
+                        print(f"  {tab_name}: batch {batch_num}/{total_batches} — {added} rows added.")
+                        result["rows_written"] += added
+                        success = True
+                        break
+                    else:
+                        last_error = data.get("error", "unknown Apps Script error")
+                        print(f"  Apps Script error ({tab_name}, batch {batch_num}, attempt {attempt}): {last_error}")
+                except urllib.error.HTTPError as exc:
+                    last_error = f"HTTP {exc.code}: {exc.reason}"
+                    print(f"  Sheet write failed ({tab_name}, batch {batch_num}, attempt {attempt}/{max_retries}): {last_error}")
+                except urllib.error.URLError as exc:
+                    last_error = f"Could not reach Apps Script: {exc.reason}"
+                    print(f"  Sheet write failed ({tab_name}, batch {batch_num}, attempt {attempt}/{max_retries}): {last_error}")
+                except Exception as exc:
+                    last_error = str(exc)
+                    print(f"  Sheet write failed ({tab_name}, batch {batch_num}, attempt {attempt}/{max_retries}): {last_error}")
 
-    return all_ok
+                if attempt < max_retries:
+                    wait = 2 ** attempt  # 2s, 4s backoff
+                    print(f"  Retrying in {wait}s...")
+                    time.sleep(wait)
+
+            if not success:
+                failed_count = len(batch)
+                result["rows_failed"] += failed_count
+                result["ok"] = False
+                result["errors"].append(
+                    f"{tab_name} batch {batch_num}/{total_batches} ({failed_count} rows): {last_error}"
+                )
+
+            # Delay between batches to avoid overwhelming Apps Script
+            if i + batch_size < len(rows):
+                time.sleep(delay_between_batches)
+
+    return result
 
 
 def write_csv_fallback(items: list[ContentItem], output_path: Path) -> None:

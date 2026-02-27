@@ -180,9 +180,17 @@ def scan():
     config = load_config(CONFIG_PATH)
     apps_script_url = config.get("apps_script_url", "")
     existing_shortcodes: set[str] = set()
+    warnings: list[str] = []
 
     if apps_script_url:
         existing_shortcodes = get_existing_shortcodes(apps_script_url)
+        if not existing_shortcodes:
+            # Could be empty sheet or connection failure — test connection
+            ok_msg, err_msg = test_connection(apps_script_url)
+            if err_msg:
+                warnings.append(f"Google Sheet unreachable: {err_msg}. Archiving will save a CSV fallback instead.")
+    else:
+        warnings.append("No Apps Script URL configured. Sheet logging will be skipped — data will only be saved as CSV.")
 
     # Store state
     _state["items"] = items
@@ -207,6 +215,7 @@ def scan():
         "type_counts": type_counts,
         "tab_counts": tab_counts,
         "items": items_json,
+        "warnings": warnings,
     })
 
 
@@ -271,17 +280,37 @@ def archive():
     moved, move_errors = move_items(to_archive)
 
     # Log to sheet
-    sheet_logged = False
+    sheet_result = {"ok": False, "rows_written": 0, "rows_failed": 0, "errors": []}
     csv_path = None
     apps_script_url = _state.get("apps_script_url")
     if apps_script_url:
-        sheet_logged = log_items_to_sheet(apps_script_url, to_archive)
-        if not sheet_logged and _state["source_folder"]:
+        sheet_result = log_items_to_sheet(apps_script_url, to_archive)
+        if not sheet_result["ok"] and _state["source_folder"]:
             csv_path = _state["source_folder"] / "archive_log_fallback.csv"
             write_csv_fallback(to_archive, csv_path)
     elif _state["source_folder"]:
         csv_path = _state["source_folder"] / "archive_log.csv"
         write_csv_fallback(to_archive, csv_path)
+
+    # Build user-facing message
+    parts = [f"Archived {moved} items."]
+    if move_errors:
+        parts.append(f"Move errors: {move_errors}.")
+    if apps_script_url:
+        if sheet_result["ok"]:
+            parts.append(f"Google Sheet: {sheet_result['rows_written']} rows written.")
+        else:
+            written = sheet_result["rows_written"]
+            failed = sheet_result["rows_failed"]
+            parts.append(f"Google Sheet: {written} rows written, {failed} rows FAILED.")
+            for err in sheet_result["errors"]:
+                parts.append(f"  - {err}")
+            if csv_path:
+                parts.append(f"Fallback CSV saved to {csv_path}.")
+    elif not apps_script_url:
+        parts.append("No Apps Script URL configured — sheet logging skipped.")
+        if csv_path:
+            parts.append(f"CSV written to {csv_path}.")
 
     # Clear state
     _state["items"] = []
@@ -292,11 +321,12 @@ def archive():
         "ok": True,
         "moved": moved,
         "errors": move_errors,
-        "sheet_logged": sheet_logged,
+        "sheet_logged": sheet_result["ok"],
+        "sheet_rows_written": sheet_result["rows_written"],
+        "sheet_rows_failed": sheet_result["rows_failed"],
+        "sheet_errors": sheet_result["errors"],
         "csv_path": str(csv_path) if csv_path else None,
-        "message": f"Archived {moved} items. Errors: {move_errors}."
-            + (" Logged to Google Sheet." if sheet_logged else "")
-            + (f" CSV written to {csv_path}." if csv_path else ""),
+        "message": " ".join(parts),
     })
 
 
