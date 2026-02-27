@@ -12,45 +12,31 @@
  * Sheet must have two tabs: "Stories" and "P&V Manual Backup"
  */
 
-// Must match SHEET_HEADERS in config.py (37 columns, A-AK)
-var HEADERS = [
-  "Timestamp",
-  "Shortcode",
-  "Real Name",
-  "Username",
-  "Post Type",
-  "Downloader",
-  "Post Date",
-  "Collaborators",
-  "Manual Notes",
-  "DB Link",
-  "Paired Content",
-  "Stories Reshare Links",
-  "Primary Beginning Tags",
-  "Secondary Beginning Tags",
-  "General Triggers",
-  "Sheet Categories",
-  "Books",
-  "Conditions",
-  "Emotional Support",
-  "Fear",
-  "Food",
-  "Healing Stories",
-  "Healing Tools",
-  "Healing Tools More",
-  "History",
-  "Miscellaneous",
-  "MM Science",
-  "Other",
-  "PW Trends",
-  "Resources",
-  "Supporting",
-  "MO-Publication",
-  "MO-PW",
-  "MO-RPT",
-  "MO-SI",
-  "MO-TS",
-  "MO-WTS"
+// Headers are sent per-tab from Python (SHEET_HEADERS_STORIES / SHEET_HEADERS_PV).
+// These defaults are used only as fallback if payload.headers is missing.
+var HEADERS_STORIES = [
+  "timestamp", "shortcode", "real_name", "username", "post_type",
+  "downloader", "post_date", "collaborators", "manual notes", "DB Link",
+  "paired content", "stories reshare links",
+  "Primary Beginning Tags", "Secondary Beginning Tags", "General Triggers",
+  "Sheet Categories", "Projects", "Books", "Original Audio", "Food",
+  "Healing Stories", "Healing Stories Exception", "Healing Tools",
+  "Healing Tools More", "Miscellaneous", "Other", "Pets", "Resources",
+  "Special", "Special Occasions", "Spiritual", "Supporting",
+  "MO - Publication", "MO - PW", "MO - RPT", "MO - SI", "MO - TS", "MO - WTS"
+];
+
+var HEADERS_PV = [
+  "timestamp", "shortcode", "url", "real_name", "username", "post_type",
+  "media_count", "comment_count", "caption_preview",
+  "downloader", "post_date", "collaborators", "manual notes", "DB Link",
+  "paired content",
+  "Primary Beginning Tags", "Secondary Beginning Tags", "General Triggers",
+  "Sheet Categories", "Projects", "Books", "Original Audio", "Food",
+  "Healing Stories", "Healing Stories Exception", "Healing Tools",
+  "Healing Tools More", "Miscellaneous", "Other", "Pets", "Resources",
+  "Special", "Special Occasions", "Spiritual", "Supporting",
+  "MO - Publication", "MO - PW", "MO - RPT", "MO - SI", "MO - TS", "MO - WTS"
 ];
 
 var TAB_STORIES = "Stories";
@@ -107,9 +93,10 @@ function doGet(e) {
 function doPost(e) {
   try {
     var payload = JSON.parse(e.postData.contents);
-    var headers = payload.headers || HEADERS;
-    var rows = payload.rows || [];
     var tabName = payload.tab || TAB_STORIES;
+    var defaultHeaders = (tabName === TAB_PV_MANUAL) ? HEADERS_PV : HEADERS_STORIES;
+    var headers = payload.headers || defaultHeaders;
+    var rows = payload.rows || [];
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(tabName);

@@ -9,6 +9,7 @@ from typing import Optional
 from .config import (
     ARCHIVE_ROOT,
     COMMENT_FOLDER_RE,
+    DATA_COLLECT_RE,
     FolderType,
     MO_PATH_TO_COLUMN,
     NAMED_STORY_FOLDER_RE,
@@ -26,6 +27,7 @@ from .parsers import (
     format_date,
     generate_pseudo_shortcode,
     parse_daily_mo_context,
+    parse_data_collect_categories_context,
     parse_metadata_json,
     parse_named_story_folder,
     parse_post_folder,
@@ -66,6 +68,12 @@ def detect_folder_type(source_dir: Path) -> tuple[FolderType, str]:
     if name.startswith("Daily MO on "):
         return FolderType.DAILY_MO, ""
 
+    if name.startswith("Data Collect on "):
+        m = DATA_COLLECT_RE.match(name)
+        if m:
+            return FolderType.DATA_COLLECT, m.group(1)  # initials
+        return FolderType.DATA_COLLECT, ""
+
     return FolderType.UNKNOWN, ""
 
 
@@ -80,6 +88,8 @@ def scan_folder(source_dir: Path) -> list[ContentItem]:
         return _scan_sat_daily(source_dir, initials)
     elif folder_type == FolderType.DAILY_MO:
         return _scan_daily_mo(source_dir)
+    elif folder_type == FolderType.DATA_COLLECT:
+        return _scan_data_collect(source_dir, initials)
     else:
         print(f"Error: Unrecognized folder type for {source_dir}")
         return []
@@ -173,6 +183,24 @@ def _scan_sat_daily_stories(stories_dir: Path, downloader: str, archive_date: st
     return items
 
 
+def _apply_context(item: ContentItem, parent: Path, root: Path, context_parser) -> None:
+    """Apply context (dropdown/MO values) from the path hierarchy to an item."""
+    try:
+        rel = parent.relative_to(root)
+        ctx = context_parser(rel.parts)
+        item.batch = ctx.get("batch", "")
+        col = ctx.get("dropdown_column", "")
+        val = ctx.get("dropdown_value", "")
+        if col and val and hasattr(item, col):
+            setattr(item, col, val)
+        mo_col = ctx.get("mo_column", "")
+        mo_val = ctx.get("mo_value", "")
+        if mo_col and mo_val and hasattr(item, mo_col):
+            setattr(item, mo_col, mo_val)
+    except ValueError:
+        pass
+
+
 def _walk_stories_tree(
     current: Path,
     stories_root: Path,
@@ -180,8 +208,13 @@ def _walk_stories_tree(
     story_groups: dict[str, dict],
     downloader: str,
     archive_date: str,
+    context_parser=None,
+    folder_type: str = "sat_daily",
+    content_section: str = "stories",
 ) -> None:
     """Walk Stories/ tree, detecting content items at each level."""
+    if context_parser is None:
+        context_parser = parse_sat_daily_stories_context
     try:
         entries = sorted(current.iterdir())
     except PermissionError:
@@ -203,32 +236,22 @@ def _walk_stories_tree(
 
         # Type B: Post folder
         if POST_FOLDER_RE.match(name):
-            item = _build_post_item(d, downloader, archive_date, "sat_daily", "stories")
+            item = _build_post_item(d, downloader, archive_date, folder_type, content_section)
             if item:
-                # Set batch and dropdown from stories context
-                try:
-                    rel = d.parent.relative_to(stories_root)
-                    ctx = parse_sat_daily_stories_context(rel.parts)
-                    item.batch = ctx.get("batch", "")
-                    col = ctx.get("dropdown_column", "")
-                    val = ctx.get("dropdown_value", "")
-                    if col and val and hasattr(item, col):
-                        setattr(item, col, val)
-                except ValueError:
-                    pass
+                _apply_context(item, d.parent, stories_root, context_parser)
                 items.append(item)
             continue
 
         # Type D: Profile folder
         if PROFILE_FOLDER_RE.match(name):
-            item = _build_profile_item(d, downloader, archive_date, "sat_daily", "stories")
+            item = _build_profile_item(d, downloader, archive_date, folder_type, content_section)
             if item:
                 items.append(item)
             continue
 
         # Type D: Comment thread folder
         if COMMENT_FOLDER_RE.match(name):
-            item = _build_comment_thread_item(d, downloader, archive_date, "sat_daily", "stories")
+            item = _build_comment_thread_item(d, downloader, archive_date, folder_type, content_section)
             if item:
                 items.append(item)
             continue
@@ -236,32 +259,24 @@ def _walk_stories_tree(
         # Type E: Named story folder or IG Stories TXT
         if NAMED_STORY_FOLDER_RE.match(name) or STORIES_TXT_FOLDER_RE.match(name):
             if _folder_contains_story_files(d):
-                _collect_story_files_from_dir(d, stories_root, story_groups)
+                _collect_story_files_from_dir(d, stories_root, story_groups, context_parser=context_parser)
             else:
-                item = _build_named_story_item(d, downloader, archive_date, "sat_daily", "stories")
+                item = _build_named_story_item(d, downloader, archive_date, folder_type, content_section)
                 if item:
-                    # Set context from path
-                    try:
-                        rel = d.parent.relative_to(stories_root)
-                        ctx = parse_sat_daily_stories_context(rel.parts)
-                        item.batch = ctx.get("batch", "")
-                        col = ctx.get("dropdown_column", "")
-                        val = ctx.get("dropdown_value", "")
-                        if col and val and hasattr(item, col):
-                            setattr(item, col, val)
-                    except ValueError:
-                        pass
+                    _apply_context(item, d.parent, stories_root, context_parser)
                     items.append(item)
             continue
 
         # Not a content folder -> recurse
-        _walk_stories_tree(d, stories_root, items, story_groups, downloader, archive_date)
+        _walk_stories_tree(d, stories_root, items, story_groups, downloader, archive_date,
+                           context_parser=context_parser, folder_type=folder_type,
+                           content_section=content_section)
 
     # Check files for Type A story pattern
     for f in files:
         parsed = parse_story_filename(f.name)
         if parsed:
-            _add_to_story_group(f, parsed, stories_root, story_groups)
+            _add_to_story_group(f, parsed, stories_root, story_groups, context_parser=context_parser)
 
 
 def _scan_sat_daily_pv(pv_dir: Path, downloader: str, archive_date: str) -> list[ContentItem]:
@@ -285,7 +300,10 @@ def _scan_sat_daily_pv(pv_dir: Path, downloader: str, archive_date: str) -> list
     return items
 
 
-def _scan_sat_daily_mo(mo_dir: Path, downloader: str, archive_date: str) -> list[ContentItem]:
+def _scan_sat_daily_mo(
+    mo_dir: Path, downloader: str, archive_date: str,
+    folder_type: str = "sat_daily", content_section: str = "mo",
+) -> list[ContentItem]:
     """Scan Additional/MO/ section: {type}/{category}/..."""
     items: list[ContentItem] = []
     story_groups: dict[str, dict] = defaultdict(lambda: {
@@ -315,7 +333,7 @@ def _scan_sat_daily_mo(mo_dir: Path, downloader: str, archive_date: str) -> list
                 _scan_mo_category(
                     category_dir, mo_column, mo_value,
                     items, story_groups, mo_dir,
-                    downloader, archive_date, "sat_daily", "mo",
+                    downloader, archive_date, folder_type, content_section,
                 )
     except PermissionError:
         pass
@@ -337,8 +355,8 @@ def _scan_sat_daily_mo(mo_dir: Path, downloader: str, archive_date: str) -> list
             source_path=group["parent_dir"],
             source_files=group["files"],
             is_folder_item=False,
-            folder_type="sat_daily",
-            content_section="mo",
+            folder_type=folder_type,
+            content_section=content_section,
         )
         mo_col = ctx.get("mo_column", "")
         mo_val = ctx.get("mo_value", "")
@@ -393,6 +411,13 @@ def _scan_mo_category(
                     setattr(item, mo_column, mo_value)
                 if item:
                     items.append(item)
+            else:
+                # Unknown dir (e.g. username subdir) — recurse
+                _scan_mo_category(
+                    entry, mo_column, mo_value,
+                    items, story_groups, root_dir,
+                    downloader, archive_date, folder_type, content_section,
+                )
         elif entry.is_file():
             parsed = parse_story_filename(entry.name)
             if parsed:
@@ -751,6 +776,131 @@ def _scan_daily_mo_ve(ve_dir: Path, archive_date: str) -> list[ContentItem]:
     return items
 
 
+# ── Data Collect Scanner ─────────────────────────────────────────────────────
+
+def _scan_data_collect(source_dir: Path, downloader: str) -> list[ContentItem]:
+    """Scan a Data Collect folder (Categories + MOT Checks sections)."""
+    items: list[ContentItem] = []
+    archive_date = today_str()
+
+    # ── Categories section (Stories tab content) ──
+    cat_dir = source_dir / "Categories"
+    if cat_dir.is_dir():
+        items.extend(_scan_data_collect_categories(cat_dir, downloader, archive_date))
+
+    # ── MOT Checks section (P&V tab + Profile/VE/Reshares) ──
+    mot_dir = source_dir / "MOT Checks"
+    if mot_dir.is_dir():
+        items.extend(_scan_mot_checks(mot_dir, downloader, archive_date))
+
+    return items
+
+
+def _scan_data_collect_categories(
+    cat_dir: Path, downloader: str, archive_date: str,
+) -> list[ContentItem]:
+    """Scan Data Collect Categories/ section using _walk_stories_tree."""
+    items: list[ContentItem] = []
+    story_groups: dict[str, dict] = defaultdict(lambda: {
+        "files": [],
+        "username": "",
+        "full_name": "",
+        "shortcode": "",
+        "date_str": "",
+        "media_type": "",
+        "ctx": {},
+        "parent_dir": None,
+    })
+
+    _walk_stories_tree(
+        cat_dir, cat_dir, items, story_groups, downloader, archive_date,
+        context_parser=parse_data_collect_categories_context,
+        folder_type="data_collect",
+        content_section="categories",
+    )
+
+    # Convert story groups into ContentItems
+    for shortcode, group in story_groups.items():
+        dest = ARCHIVE_ROOT / group["username"] / "Stories"
+        ctx = group["ctx"]
+        item = ContentItem(
+            timestamp=archive_date,
+            shortcode=shortcode,
+            real_name=group["full_name"],
+            username=group["username"],
+            post_type="Story",
+            downloader=downloader,
+            post_date=format_date(group["date_str"]),
+            db_link=str(group["files"][0]) if group["files"] else "",
+            batch=ctx.get("batch", ""),
+            wpas_code=ctx.get("wpas_code", ""),
+            destination_path=str(dest),
+            source_path=group["parent_dir"],
+            source_files=group["files"],
+            is_folder_item=False,
+            folder_type="data_collect",
+            content_section="categories",
+        )
+        # Set dropdown column value from context
+        col = ctx.get("dropdown_column", "")
+        val = ctx.get("dropdown_value", "")
+        if col and val and hasattr(item, col):
+            setattr(item, col, val)
+        # Set MO column value from context
+        mo_col = ctx.get("mo_column", "")
+        mo_val = ctx.get("mo_value", "")
+        if mo_col and mo_val and hasattr(item, mo_col):
+            setattr(item, mo_col, mo_val)
+        items.append(item)
+
+    return items
+
+
+def _scan_mot_checks(
+    mot_dir: Path, downloader: str, archive_date: str,
+) -> list[ContentItem]:
+    """Scan MOT Checks/ section (Categories/PW, Profile, Reshares, VE)."""
+    items: list[ContentItem] = []
+
+    # ── Categories (reuses MO scanner for PW/RPT/etc. structure) ──
+    categories_dir = mot_dir / "Categories"
+    if categories_dir.is_dir():
+        mot_items = _scan_sat_daily_mo(
+            categories_dir, downloader, archive_date,
+            folder_type="data_collect", content_section="mot_checks",
+        )
+        items.extend(mot_items)
+
+    # ── Profile ──
+    profile_dir = mot_dir / "Profile"
+    if profile_dir.is_dir():
+        for item in _scan_daily_mo_profile(profile_dir, archive_date):
+            item.downloader = downloader
+            item.folder_type = "data_collect"
+            item.content_section = "profile"
+            items.append(item)
+
+    # ── Reshares ──
+    reshares_dir = mot_dir / "Reshares"
+    if reshares_dir.is_dir():
+        for item in _scan_daily_mo_reshares(reshares_dir, archive_date):
+            item.downloader = downloader
+            item.folder_type = "data_collect"
+            item.content_section = "reshares"
+            items.append(item)
+
+    # ── VE ──
+    ve_dir = mot_dir / "VE"
+    if ve_dir.is_dir():
+        for item in _scan_daily_mo_ve(ve_dir, archive_date):
+            item.downloader = downloader
+            item.folder_type = "data_collect"
+            item.content_section = "ve"
+            items.append(item)
+
+    return items
+
+
 # ── Shared item builders ──────────────────────────────────────────────────────
 
 def _build_post_item(
@@ -797,6 +947,13 @@ def _build_post_item(
     # Determine if paired from folder name
     paired = " - PAIRED" in folder.name
 
+    # P&V-only fields from metadata
+    post_url = metadata.get("post_url", "")
+    meta_media_count = str(metadata.get("media_count", "")) if metadata.get("media_count") else ""
+    meta_comment_count = str(metadata.get("comment_count", "")) if metadata.get("comment_count") else ""
+    caption = metadata.get("caption", "")
+    caption_prev = caption[:200] if caption else ""
+
     return ContentItem(
         timestamp=archive_date,
         shortcode=shortcode,
@@ -808,6 +965,10 @@ def _build_post_item(
         collaborators=collabs,
         db_link=db_link,
         paired_content="Yes" if paired else "",
+        url=post_url,
+        media_count=meta_media_count,
+        comment_count=meta_comment_count,
+        caption_preview=caption_prev,
         destination_path=str(dest),
         source_path=folder,
         source_files=all_files,
@@ -944,6 +1105,7 @@ def _collect_story_files_from_dir(
     story_groups: dict[str, dict],
     mo_column: str = "",
     mo_value: str = "",
+    context_parser=None,
 ) -> None:
     """Collect Type A story files from a folder."""
     try:
@@ -951,7 +1113,9 @@ def _collect_story_files_from_dir(
             if entry.is_file():
                 parsed = parse_story_filename(entry.name)
                 if parsed:
-                    _add_to_story_group(entry, parsed, root_dir, story_groups, mo_column=mo_column, mo_value=mo_value)
+                    _add_to_story_group(entry, parsed, root_dir, story_groups,
+                                        mo_column=mo_column, mo_value=mo_value,
+                                        context_parser=context_parser)
     except PermissionError:
         pass
 
@@ -965,6 +1129,7 @@ def _add_to_story_group(
     mo_value: str = "",
     resharer_username: str = "",
     resharer_name: str = "",
+    context_parser=None,
 ) -> None:
     """Add a story file to its shortcode group."""
     shortcode = parsed["shortcode"]
@@ -986,9 +1151,10 @@ def _add_to_story_group(
 
     # Path context
     if not group["ctx"]:
+        parser = context_parser or parse_sat_daily_stories_context
         try:
             rel = file_path.parent.relative_to(root_dir)
-            group["ctx"] = parse_sat_daily_stories_context(rel.parts)
+            group["ctx"] = parser(rel.parts)
         except ValueError:
             group["ctx"] = {}
 

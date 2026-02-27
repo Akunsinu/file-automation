@@ -247,6 +247,8 @@
     {% endif %}
   </select>
   <button onclick="refreshFolders()" title="Refresh folder list" style="padding: 6px 10px; font-size: 13px;">&#x21bb;</button>
+  <span style="color: var(--text-dim); font-size: 12px;">or</span>
+  <input type="text" id="custom-folder" placeholder="Paste any folder path..." style="flex: 1; min-width: 250px; font-size: 13px;">
 </div>
 
 <!-- Main Content -->
@@ -360,23 +362,24 @@ const DROPDOWN_FIELDS = {
   secondary_beginning_tags: [],
   general_triggers: [],
   sheet_categories: [],
-  // Content categories (Q-AE)
+  // Content categories
+  projects: [],
   books: [],
-  conditions: [],
-  emotional_support: [],
-  fear: [],
+  original_audio: [],
   food: [],
   healing_stories: [],
+  healing_stories_exception: [],
   healing_tools: [],
   healing_tools_more: [],
-  history: [],
   miscellaneous: [],
-  mm_science: [],
   other: [],
-  pw_trends: [],
+  pets: [],
   resources: [],
+  special: [],
+  special_occasions: [],
+  spiritual: [],
   supporting: [],
-  // MO columns (AF-AK)
+  // MO columns
   mo_publication: [],
   mo_pw: [],
   mo_rpt: [],
@@ -391,13 +394,15 @@ const FIELD_LABELS = {
   secondary_beginning_tags: 'Secondary Beginning Tags',
   general_triggers: 'General Triggers',
   sheet_categories: 'Sheet Categories',
-  books: 'Books', conditions: 'Conditions', emotional_support: 'Emotional Support',
-  fear: 'Fear', food: 'Food', healing_stories: 'Healing Stories',
+  projects: 'Projects', books: 'Books', original_audio: 'Original Audio',
+  food: 'Food', healing_stories: 'Healing Stories',
+  healing_stories_exception: 'Healing Stories Exception',
   healing_tools: 'Healing Tools', healing_tools_more: 'Healing Tools More',
-  history: 'History', miscellaneous: 'Miscellaneous', mm_science: 'MM Science',
-  other: 'Other', pw_trends: 'PW Trends', resources: 'Resources', supporting: 'Supporting',
-  mo_publication: 'MO-Publication', mo_pw: 'MO-PW', mo_rpt: 'MO-RPT',
-  mo_si: 'MO-SI', mo_ts: 'MO-TS', mo_wts: 'MO-WTS',
+  miscellaneous: 'Miscellaneous', other: 'Other', pets: 'Pets',
+  resources: 'Resources', special: 'Special', special_occasions: 'Special Occasions',
+  spiritual: 'Spiritual', supporting: 'Supporting',
+  mo_publication: 'MO - Publication', mo_pw: 'MO - PW', mo_rpt: 'MO - RPT',
+  mo_si: 'MO - SI', mo_ts: 'MO - TS', mo_wts: 'MO - WTS',
 };
 
 /* ── Panel toggle ─────────────────────────────────────────── */
@@ -495,7 +500,8 @@ async function scanFolder() {
     setStatus('Please enter your initials.', 'error');
     return;
   }
-  const folder = document.getElementById('folder-select').value;
+  const customFolder = document.getElementById('custom-folder').value.trim();
+  const folder = customFolder || document.getElementById('folder-select').value;
   if (!folder) {
     setStatus('No folder selected.', 'error');
     return;
@@ -623,9 +629,18 @@ function buildDetailContent(item) {
   if (item.resharer_username) {
     html += infoField('Resharer', `${item.resharer_name} (@${item.resharer_username})`);
   }
+  // P&V-only fields
+  if (item.target_tab !== 'Stories') {
+    html += infoField('URL', item.url);
+    html += infoField('Media Count', item.media_count);
+    html += infoField('Comment Count', item.comment_count);
+    html += infoField('Caption Preview', item.caption_preview);
+  }
   html += editableTextField(item, 'manual_notes', 'Manual Notes');
   html += editableTextField(item, 'paired_content', 'Paired Content');
-  html += editableTextField(item, 'stories_reshare_links', 'Stories Reshare Links');
+  if (item.target_tab === 'Stories') {
+    html += editableTextField(item, 'stories_reshare_links', 'Stories Reshare Links');
+  }
   html += '</div></div>';
 
   // File preview section — show only raw (stories) or media (posts) files
@@ -671,9 +686,10 @@ function buildDetailContent(item) {
 
   // Content Categories section
   html += '<div class="detail-section"><h4>Content Categories</h4><div class="detail-grid">';
-  for (const f of ['books', 'conditions', 'emotional_support', 'fear', 'food',
-    'healing_stories', 'healing_tools', 'healing_tools_more', 'history',
-    'miscellaneous', 'mm_science', 'other', 'pw_trends', 'resources', 'supporting']) {
+  for (const f of ['projects', 'books', 'original_audio', 'food',
+    'healing_stories', 'healing_stories_exception', 'healing_tools', 'healing_tools_more',
+    'miscellaneous', 'other', 'pets', 'resources',
+    'special', 'special_occasions', 'spiritual', 'supporting']) {
     html += dropdownField(item, f);
   }
   html += '</div></div>';

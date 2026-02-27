@@ -9,7 +9,7 @@ import urllib.error
 from collections import defaultdict
 from pathlib import Path
 
-from .config import SHEET_HEADERS, TAB_STORIES, TAB_PV_MANUAL
+from .config import SHEET_HEADERS_STORIES, SHEET_HEADERS_PV, TAB_STORIES, TAB_PV_MANUAL
 from .models import ContentItem
 
 
@@ -56,9 +56,7 @@ def get_existing_shortcodes(url: str) -> set[str]:
         return set()
 
 
-def log_items_to_sheet(
-    url: str, items: list[ContentItem], headers: list[str] | None = None
-) -> bool:
+def log_items_to_sheet(url: str, items: list[ContentItem]) -> bool:
     """POST rows as JSON to the Apps Script URL, grouped by target tab.
 
     Returns True if all tab writes succeed.
@@ -66,39 +64,44 @@ def log_items_to_sheet(
     if not items:
         return True
 
-    headers = headers or SHEET_HEADERS
-
     # Group items by target tab
     by_tab: dict[str, list[ContentItem]] = defaultdict(list)
     for item in items:
         by_tab[item.target_tab].append(item)
 
     all_ok = True
-    for tab_name, tab_items in by_tab.items():
-        rows = [item.to_row() for item in tab_items]
-        payload = json.dumps({
-            "headers": headers,
-            "rows": rows,
-            "tab": tab_name,
-        }).encode()
+    batch_size = 10
 
-        try:
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-            if data.get("ok"):
-                print(f"  {tab_name}: {data.get('added', 0)} rows added.")
-            else:
-                print(f"  Apps Script error ({tab_name}): {data.get('error', 'unknown')}")
+    for tab_name, tab_items in by_tab.items():
+        headers = SHEET_HEADERS_STORIES if tab_name == TAB_STORIES else SHEET_HEADERS_PV
+        rows = [item.to_row() for item in tab_items]
+
+        # Send in batches to avoid Apps Script timeouts
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i : i + batch_size]
+            payload = json.dumps({
+                "headers": headers,
+                "rows": batch,
+                "tab": tab_name,
+            }).encode()
+
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read().decode())
+                if data.get("ok"):
+                    print(f"  {tab_name}: batch {i // batch_size + 1} — {data.get('added', 0)} rows added.")
+                else:
+                    print(f"  Apps Script error ({tab_name}): {data.get('error', 'unknown')}")
+                    all_ok = False
+            except Exception as exc:
+                print(f"  Sheet write failed ({tab_name}, batch {i // batch_size + 1}): {exc}")
                 all_ok = False
-        except Exception as exc:
-            print(f"  Sheet write failed ({tab_name}): {exc}")
-            all_ok = False
 
     return all_ok
 
@@ -114,9 +117,10 @@ def write_csv_fallback(items: list[ContentItem], output_path: Path) -> None:
         # Create tab-specific filename
         suffix = "_stories" if tab_name == TAB_STORIES else "_pv"
         csv_path = output_path.parent / f"{output_path.stem}{suffix}.csv"
+        headers = SHEET_HEADERS_STORIES if tab_name == TAB_STORIES else SHEET_HEADERS_PV
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(SHEET_HEADERS)
+            writer.writerow(headers)
             for item in tab_items:
                 writer.writerow(item.to_row())
         print(f"  Fallback CSV written to: {csv_path}")

@@ -34,17 +34,23 @@ _state: dict = {
     "existing_shortcodes": set(),
 }
 
-# All 37 sheet fields on ContentItem (for serialization)
+# All sheet fields on ContentItem (for serialization)
 _SHEET_FIELDS = [
     "timestamp", "shortcode", "real_name", "username", "post_type",
     "downloader", "post_date", "collaborators", "manual_notes", "db_link",
     "paired_content", "stories_reshare_links",
+    # P&V-only columns
+    "url", "media_count", "comment_count", "caption_preview",
+    # Tag dropdowns
     "primary_beginning_tags", "secondary_beginning_tags",
     "general_triggers", "sheet_categories",
-    "books", "conditions", "emotional_support", "fear", "food",
-    "healing_stories", "healing_tools", "healing_tools_more",
-    "history", "miscellaneous", "mm_science", "other",
-    "pw_trends", "resources", "supporting",
+    # Content categories
+    "projects", "books", "original_audio", "food",
+    "healing_stories", "healing_stories_exception",
+    "healing_tools", "healing_tools_more",
+    "miscellaneous", "other", "pets", "resources",
+    "special", "special_occasions", "spiritual", "supporting",
+    # MO columns
     "mo_publication", "mo_pw", "mo_rpt", "mo_si", "mo_ts", "mo_wts",
 ]
 

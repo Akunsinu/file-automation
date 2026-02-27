@@ -135,6 +135,73 @@ def parse_daily_mo_context(section: str, rel_parts: tuple[str, ...]) -> dict:
     return ctx
 
 
+# ── Data Collect path context parser ──────────────────────────────────────────
+
+def parse_data_collect_categories_context(rel_parts: tuple[str, ...]) -> dict:
+    """Extract dropdown column/value from Data Collect Categories/ hierarchy.
+
+    rel_parts is relative to Categories/.
+    Examples:
+      ("Food", "WPAS REC")              → food="REC"
+      ("Healing Tools", "WPAS CJ")      → healing_tools="CJ"
+      ("MO", "PW", "History")           → mo_pw="History"
+      ("Pets", "Dog")                   → pets="Dog"
+      ("Other", "WPAS ORIG MM", "MM Science") → other="ORIG MM / MM Science"
+      ("Healing Stories", "HS MISC", "Inspiration") → healing_stories="HS MISC / Inspiration"
+    """
+    ctx: dict = {
+        "batch": "",
+        "dropdown_column": "",
+        "dropdown_value": "",
+        "wpas_code": "",
+        "mo_column": "",
+        "mo_value": "",
+    }
+    if not rel_parts:
+        return ctx
+
+    category = rel_parts[0]
+
+    # Special case: MO sub-section within Categories
+    if category == "MO":
+        if len(rel_parts) > 1:
+            mo_type = rel_parts[1]  # "PW", "RPT", etc.
+            ctx["mo_column"] = MO_PATH_TO_COLUMN.get(mo_type, "")
+        if len(rel_parts) > 2:
+            ctx["mo_value"] = rel_parts[2]
+        return ctx
+
+    # Regular content category
+    col = STORY_CATEGORY_TO_COLUMN.get(category, "")
+    ctx["dropdown_column"] = col
+
+    if len(rel_parts) > 1:
+        sub = rel_parts[1]
+        wpas_match = WPAS_RE.match(sub)
+        if wpas_match:
+            ctx["wpas_code"] = wpas_match.group(1)
+            ctx["dropdown_value"] = wpas_match.group(1)
+        else:
+            ctx["dropdown_value"] = sub
+
+    # Deeper nesting appended to value (skip content folders)
+    if len(rel_parts) > 2:
+        sub = rel_parts[2]
+        is_content_folder = (
+            sub.startswith("IG Stories")
+            or sub.startswith("IG Reshare")
+            or sub.startswith("IG Profile")
+            or sub.startswith("IG Regular Comment")
+            or STORY_FILE_RE.match(sub)
+            or POST_FOLDER_RE.match(sub)
+        )
+        if not is_content_folder:
+            base = ctx["dropdown_value"]
+            ctx["dropdown_value"] = f"{base} / {sub}" if base else sub
+
+    return ctx
+
+
 # ── Reshare folder parser ─────────────────────────────────────────────────────
 
 def parse_reshare_folder(folder_name: str) -> Optional[dict]:
@@ -236,6 +303,7 @@ def parse_metadata_json(json_path: Path) -> dict:
             "shortcode": data.get("shortcode", ""),
             "caption": data.get("caption", ""),
             "like_count": data.get("like_count", 0),
+            "media_count": data.get("media_count", 0),
             "comment_count": data.get("comment_count", 0),
             "posted_at": data.get("posted_at", ""),
             "media_type": data.get("media_type", ""),
@@ -250,11 +318,18 @@ def parse_metadata_json(json_path: Path) -> dict:
 
 
 def parse_story_filename(filename: str) -> Optional[dict]:
-    """Parse a Type A story filename. Returns dict or None."""
+    """Parse a Type A story filename. Returns dict or None.
+
+    Handles both standard (2-digit seq + shortcode) and long-ID (no separate shortcode) variants.
+    """
     m = STORY_FILE_RE.match(filename)
     if not m:
         return None
-    prefix, date_str, time_str, seq, shortcode, suffix, ext = m.groups()
+    prefix, date_str, time_str, seq_or_id, shortcode, suffix, ext = m.groups()
+    # Long-ID variant: shortcode group is None, use the numeric ID
+    if shortcode is None:
+        shortcode = seq_or_id
+
     username = extract_username_from_story_prefix(prefix)
     full_name = ""
     if " " in prefix:
@@ -269,7 +344,7 @@ def parse_story_filename(filename: str) -> Optional[dict]:
         "shortcode": shortcode,
         "date_str": date_str,
         "time_str": time_str,
-        "seq": seq,
+        "seq": seq_or_id,
         "suffix": suffix,
         "ext": ext,
         "raw_ext": raw_ext,
