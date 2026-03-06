@@ -122,6 +122,8 @@
   .type-Comment { background: rgba(224,85,85,0.15); color: var(--badge-comment); }
   .type-Collection { background: rgba(176,108,224,0.15); color: var(--badge-collection); }
   .type-VE { background: rgba(80,176,224,0.15); color: var(--badge-ve); }
+  .type-Reshare { background: rgba(224,160,80,0.15); color: #e0a050; }
+  .type-RSCSV { background: rgba(139,143,163,0.15); color: var(--text-dim); }
 
   .tab-badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px;
@@ -129,6 +131,7 @@
   }
   .tab-Stories { background: rgba(108,126,225,0.15); color: var(--tab-stories); }
   .tab-PV { background: rgba(76,175,130,0.15); color: var(--tab-pv); }
+  .tab-VE { background: rgba(80,176,224,0.15); color: var(--badge-ve); }
 
   /* Detail row */
   tr.detail-row { display: none; }
@@ -309,6 +312,7 @@
       <button class="active" onclick="filterItems('all')" data-filter="all">All</button>
       <button onclick="filterItems('Stories')" data-filter="Stories">Stories Tab</button>
       <button onclick="filterItems('P&V Manual Backup')" data-filter="P&V Manual Backup">P&V Tab</button>
+      <button onclick="filterItems('VE')" data-filter="VE">VE Tab</button>
       <button onclick="filterItems('Story')" data-filter="Story">Stories</button>
       <button onclick="filterItems('Post')" data-filter="Post">Posts</button>
     </div>
@@ -550,7 +554,7 @@ function renderResults(res) {
   }
   if (res.tab_counts) {
     for (const [tab, count] of Object.entries(res.tab_counts)) {
-      const label = tab === 'Stories' ? 'Stories Tab' : 'P&V Tab';
+      const label = tab === 'Stories' ? 'Stories Tab' : tab === 'VE' ? 'VE Tab' : 'P&V Tab';
       statsHtml += `<span class="stat">${label}: ${count}</span>`;
     }
   }
@@ -574,7 +578,7 @@ function renderTable() {
   for (const item of state.items) {
     // Apply filter
     if (state.filter !== 'all') {
-      if (state.filter === 'Stories' || state.filter === 'P&V Manual Backup') {
+      if (state.filter === 'Stories' || state.filter === 'P&V Manual Backup' || state.filter === 'VE') {
         if (item.target_tab !== state.filter) continue;
       } else {
         if (item.post_type !== state.filter) continue;
@@ -591,8 +595,8 @@ function renderTable() {
     const statusText = item.is_duplicate
       ? '<span style="color:var(--orange)">Duplicate</span>'
       : '<span style="color:var(--green)">New</span>';
-    const tabLabel = item.target_tab === 'Stories' ? 'Stories' : 'P&V';
-    const tabClass = item.target_tab === 'Stories' ? 'tab-Stories' : 'tab-PV';
+    const tabLabel = item.target_tab === 'Stories' ? 'Stories' : item.target_tab === 'VE' ? 'VE' : 'P&V';
+    const tabClass = item.target_tab === 'Stories' ? 'tab-Stories' : item.target_tab === 'VE' ? 'tab-VE' : 'tab-PV';
 
     tr.innerHTML = `
       <td><input type="checkbox" class="item-cb" data-sc="${esc(item.shortcode)}" ${checked} onchange="updateCount()" onclick="event.stopPropagation()"></td>
@@ -788,6 +792,8 @@ function typeBadgeClass(type) {
   if (type === 'Comment Thread') return 'type-Comment';
   if (type === 'Story Collection') return 'type-Collection';
   if (type === 'VE') return 'type-VE';
+  if (type === 'Reshare') return 'type-Reshare';
+  if (type === 'RS CSV') return 'type-RSCSV';
   return '';
 }
 

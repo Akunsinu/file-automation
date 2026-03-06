@@ -20,6 +20,7 @@ SAT_CHECKS_RE = re.compile(r"^SAT Checks - (.+?) - RTA$")
 # ── Tab names ──────────────────────────────────────────────────────────────────
 TAB_STORIES = "Stories"
 TAB_PV_MANUAL = "P&V Manual Backup"
+TAB_VE = "VE"
 
 # ── Folder type enum ──────────────────────────────────────────────────────────
 class FolderType(Enum):
@@ -79,6 +80,9 @@ STORIES_TXT_FOLDER_RE = re.compile(
 RESHARE_FOLDER_RE = re.compile(
     r"^IG Reshare - (\d{4}-\d{2}-\d{2}) - (.+?) - @?([\w.]+)$"
 )
+
+# RS CSV files: IG_RS[_L]*.csv
+RS_CSV_RE = re.compile(r"^IG_RS[_L].*\.csv$", re.IGNORECASE)
 
 # IG VE files: IG VE - date(s) - Name - handle[ - N].MP4
 VE_FILE_RE = re.compile(
@@ -173,6 +177,18 @@ SHEET_HEADERS_STORIES = [
     "MO - SI",                    # AJ
     "MO - TS",                    # AK
     "MO - WTS",                   # AL
+]
+
+# VE tab: 8 columns (A-H)
+SHEET_HEADERS_VE = [
+    "timestamp",                  # A
+    "shortcode",                  # B
+    "real_name",                  # C
+    "username",                   # D
+    "downloader",                 # E
+    "post_date",                  # F
+    "DB Link",                    # G
+    "manual notes",               # H
 ]
 
 # P&V Manual Backup tab: 41 columns (A-AO)

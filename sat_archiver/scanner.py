@@ -16,12 +16,14 @@ from .config import (
     POST_FOLDER_RE,
     PROFILE_FOLDER_RE,
     RESHARE_FOLDER_RE,
+    RS_CSV_RE,
     SAT_CHECKS_RE,
     STORIES_TXT_FOLDER_RE,
     STORY_CATEGORY_TO_COLUMN,
     STORY_FILE_RE,
 )
 from .models import ContentItem
+from .mover import resolve_user_dir
 from .parsers import (
     extract_collaborators,
     format_date,
@@ -152,7 +154,7 @@ def _scan_sat_daily_stories(stories_dir: Path, downloader: str, archive_date: st
 
     # Convert story groups into ContentItems
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / "Stories"
+        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -340,7 +342,7 @@ def _scan_sat_daily_mo(
 
     # Convert story groups
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / "Stories"
+        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -489,7 +491,7 @@ def _scan_daily_mo_categories(categories_dir: Path, archive_date: str) -> list[C
 
     # Convert story groups
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / "Stories"
+        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -516,158 +518,70 @@ def _scan_daily_mo_categories(categories_dir: Path, archive_date: str) -> list[C
 
 
 def _scan_daily_mo_reshares(reshares_dir: Path, archive_date: str) -> list[ContentItem]:
-    """Scan Reshares/ — IG Reshare folders with category/username/post structure."""
+    """Scan Reshares/ — IG Reshare folders and RS CSV files."""
     items: list[ContentItem] = []
-    story_groups: dict[str, dict] = defaultdict(lambda: {
-        "files": [],
-        "username": "",
-        "full_name": "",
-        "shortcode": "",
-        "date_str": "",
-        "media_type": "",
-        "ctx": {},
-        "parent_dir": None,
-    })
 
     try:
-        for reshare_dir in sorted(reshares_dir.iterdir()):
-            if not reshare_dir.is_dir() or reshare_dir.name.startswith("."):
-                continue
-
-            reshare_info = parse_reshare_folder(reshare_dir.name)
-            resharer_username = reshare_info["handle"] if reshare_info else ""
-            resharer_name = reshare_info["full_name"] if reshare_info else ""
-
-            # Walk category dirs inside reshare folder
-            for cat_dir in sorted(reshare_dir.iterdir()):
-                if not cat_dir.is_dir() or cat_dir.name.startswith("."):
-                    continue
-                category_name = cat_dir.name
-
-                # Category might contain username dirs with posts, or direct posts
-                _scan_reshare_category(
-                    cat_dir, category_name,
-                    resharer_username, resharer_name,
-                    items, story_groups, reshares_dir,
-                    archive_date,
-                )
-    except PermissionError:
-        pass
-
-    # Convert story groups
-    for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / "Stories"
-        ctx = group["ctx"]
-        item = ContentItem(
-            timestamp=archive_date,
-            shortcode=shortcode,
-            real_name=group["full_name"],
-            username=group["username"],
-            post_type="Story",
-            post_date=format_date(group["date_str"]),
-            db_link=str(group["files"][0]) if group["files"] else "",
-            sheet_categories="Reshare",
-            resharer_username=ctx.get("resharer_username", ""),
-            resharer_name=ctx.get("resharer_name", ""),
-            destination_path=str(dest),
-            source_path=group["parent_dir"],
-            source_files=group["files"],
-            is_folder_item=False,
-            folder_type="daily_mo",
-            content_section="reshares",
-        )
-        mo_col = ctx.get("mo_column", "")
-        mo_val = ctx.get("mo_value", "")
-        if mo_col and mo_val and hasattr(item, mo_col):
-            setattr(item, mo_col, mo_val)
-        items.append(item)
-
-    return items
-
-
-def _scan_reshare_category(
-    cat_dir: Path,
-    category_name: str,
-    resharer_username: str,
-    resharer_name: str,
-    items: list[ContentItem],
-    story_groups: dict[str, dict],
-    root_dir: Path,
-    archive_date: str,
-) -> None:
-    """Scan a category inside a reshare folder: may contain username dirs or direct posts."""
-    try:
-        entries = sorted(cat_dir.iterdir())
-    except PermissionError:
-        return
-
-    for entry in entries:
-        if entry.name.startswith("."):
-            continue
-
-        if entry.is_dir():
-            if POST_FOLDER_RE.match(entry.name):
-                # Direct post in category
-                item = _build_post_item(entry, "", archive_date, "daily_mo", "reshares")
-                if item:
-                    item.sheet_categories = "Reshare"
-                    item.mo_pw = category_name
-                    item.resharer_username = resharer_username
-                    item.resharer_name = resharer_name
-                    items.append(item)
-            else:
-                # Username directory containing posts
-                _scan_reshare_username_dir(
-                    entry, category_name,
-                    resharer_username, resharer_name,
-                    items, story_groups, root_dir,
-                    archive_date,
-                )
-        elif entry.is_file():
-            parsed = parse_story_filename(entry.name)
-            if parsed:
-                _add_to_story_group(
-                    entry, parsed, root_dir, story_groups,
-                    mo_column="mo_pw", mo_value=category_name,
-                    resharer_username=resharer_username,
-                    resharer_name=resharer_name,
-                )
-
-
-def _scan_reshare_username_dir(
-    username_dir: Path,
-    category_name: str,
-    resharer_username: str,
-    resharer_name: str,
-    items: list[ContentItem],
-    story_groups: dict[str, dict],
-    root_dir: Path,
-    archive_date: str,
-) -> None:
-    """Scan a username directory inside a reshare category."""
-    try:
-        for entry in sorted(username_dir.iterdir()):
+        for entry in sorted(reshares_dir.iterdir()):
             if entry.name.startswith("."):
                 continue
-            if entry.is_dir() and POST_FOLDER_RE.match(entry.name):
-                item = _build_post_item(entry, "", archive_date, "daily_mo", "reshares")
-                if item:
-                    item.sheet_categories = "Reshare"
-                    item.mo_pw = category_name
-                    item.resharer_username = resharer_username
-                    item.resharer_name = resharer_name
-                    items.append(item)
-            elif entry.is_file():
-                parsed = parse_story_filename(entry.name)
-                if parsed:
-                    _add_to_story_group(
-                        entry, parsed, root_dir, story_groups,
-                        mo_column="mo_pw", mo_value=category_name,
-                        resharer_username=resharer_username,
-                        resharer_name=resharer_name,
-                    )
+
+            # IG Reshare folder → one ContentItem per folder
+            if entry.is_dir() and RESHARE_FOLDER_RE.match(entry.name):
+                reshare_info = parse_reshare_folder(entry.name)
+                if not reshare_info:
+                    continue
+                handle = reshare_info["handle"]
+                full_name = reshare_info["full_name"]
+                date_str = reshare_info["date_str"]
+                pseudo = generate_pseudo_shortcode(handle, date_str, entry.name)
+                dest = resolve_user_dir(handle, full_name) / "Reshares"
+                all_files = [f for f in entry.rglob("*") if f.is_file() and not f.name.startswith(".")]
+                db_link = str(all_files[0]) if all_files else ""
+
+                items.append(ContentItem(
+                    timestamp=archive_date,
+                    shortcode=pseudo,
+                    real_name=full_name,
+                    username=handle,
+                    post_type="Reshare",
+                    post_date=date_str,
+                    db_link=db_link,
+                    sheet_categories="Reshare",
+                    resharer_username=handle,
+                    resharer_name=full_name,
+                    destination_path=str(dest),
+                    source_path=entry,
+                    source_files=all_files,
+                    is_folder_item=True,
+                    folder_type="daily_mo",
+                    content_section="reshares",
+                ))
+                continue
+
+            # RS CSV files → archive only, no sheet entry
+            if entry.is_file() and RS_CSV_RE.match(entry.name):
+                pseudo = generate_pseudo_shortcode("rs_csv", archive_date, entry.name)
+                # RS CSVs don't have a username; place in a shared location
+                dest = ARCHIVE_ROOT / "Reshares"
+                items.append(ContentItem(
+                    timestamp=archive_date,
+                    shortcode=pseudo,
+                    post_type="RS CSV",
+                    post_date=archive_date,
+                    db_link=str(entry),
+                    skip_sheet_log=True,
+                    destination_path=str(dest),
+                    source_path=entry,
+                    source_files=[entry],
+                    is_folder_item=False,
+                    folder_type="daily_mo",
+                    content_section="reshares",
+                ))
     except PermissionError:
         pass
+
+    return items
 
 
 def _scan_daily_mo_manual(manual_dir: Path, archive_date: str) -> list[ContentItem]:
@@ -679,23 +593,44 @@ def _scan_daily_mo_manual(manual_dir: Path, archive_date: str) -> list[ContentIt
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
 
-            # IG Stories folder
+            # IG Stories folder — preserved as folder
             if NAMED_STORY_FOLDER_RE.match(entry.name) or STORIES_TXT_FOLDER_RE.match(entry.name):
                 item = _build_named_story_item(entry, "", archive_date, "daily_mo", "manual")
                 if item:
+                    item.move_as_folder = True
                     items.append(item)
                 continue
 
-            # IG Reshare folder
+            # IG Reshare folder — flatten categories, archive to Reshares/
             if RESHARE_FOLDER_RE.match(entry.name):
                 reshare_info = parse_reshare_folder(entry.name)
                 if reshare_info:
-                    item = _build_named_story_item(entry, "", archive_date, "daily_mo", "manual")
-                    if item:
-                        item.resharer_username = reshare_info["handle"]
-                        item.resharer_name = reshare_info["full_name"]
-                        item.sheet_categories = "Reshare"
-                        items.append(item)
+                    handle = reshare_info["handle"]
+                    full_name = reshare_info["full_name"]
+                    date_str = reshare_info["date_str"]
+                    pseudo = generate_pseudo_shortcode(handle, date_str, entry.name)
+                    dest = resolve_user_dir(handle, full_name) / "Reshares"
+                    all_files = [f for f in entry.rglob("*") if f.is_file() and not f.name.startswith(".")]
+                    db_link = str(all_files[0]) if all_files else ""
+
+                    items.append(ContentItem(
+                        timestamp=archive_date,
+                        shortcode=pseudo,
+                        real_name=full_name,
+                        username=handle,
+                        post_type="Reshare",
+                        post_date=date_str,
+                        db_link=db_link,
+                        sheet_categories="Reshare",
+                        resharer_username=handle,
+                        resharer_name=full_name,
+                        destination_path=str(dest),
+                        source_path=entry,
+                        source_files=all_files,
+                        is_folder_item=True,
+                        folder_type="daily_mo",
+                        content_section="manual",
+                    ))
                 continue
 
     except PermissionError:
@@ -717,7 +652,7 @@ def _scan_daily_mo_profile(profile_dir: Path, archive_date: str) -> list[Content
                 username = parsed["username"]
                 date_str = format_date(parsed["date_str"])
                 pseudo = generate_pseudo_shortcode(username, date_str, entry.name)
-                dest = ARCHIVE_ROOT / username / "Profile"
+                dest = resolve_user_dir(username) / "Profile"
 
                 items.append(ContentItem(
                     timestamp=archive_date,
@@ -753,7 +688,7 @@ def _scan_daily_mo_ve(ve_dir: Path, archive_date: str) -> list[ContentItem]:
                 full_name = parsed["full_name"]
                 date_str = parsed["date_str"]
                 pseudo = generate_pseudo_shortcode(handle, date_str, entry.name)
-                dest = ARCHIVE_ROOT / handle / "VE"
+                dest = resolve_user_dir(handle, full_name) / "VE"
 
                 items.append(ContentItem(
                     timestamp=archive_date,
@@ -821,7 +756,7 @@ def _scan_data_collect_categories(
 
     # Convert story groups into ContentItems
     for shortcode, group in story_groups.items():
-        dest = ARCHIVE_ROOT / group["username"] / "Stories"
+        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
         ctx = group["ctx"]
         item = ContentItem(
             timestamp=archive_date,
@@ -941,7 +876,8 @@ def _build_post_item(
         if media_files:
             db_link = str(media_files[0])
 
-    dest = ARCHIVE_ROOT / username / "Posts"
+    real_name = metadata.get("full_name", "")
+    dest = resolve_user_dir(username, real_name) / "Posts"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     # Determine if paired from folder name
@@ -957,7 +893,7 @@ def _build_post_item(
     return ContentItem(
         timestamp=archive_date,
         shortcode=shortcode,
-        real_name=metadata.get("full_name", ""),
+        real_name=real_name,
         username=username,
         post_type="Post",
         downloader=downloader,
@@ -974,6 +910,7 @@ def _build_post_item(
         source_files=all_files,
         is_folder_item=True,
         has_metadata_json=has_meta,
+        move_as_folder=True,
         folder_type=folder_type,
         content_section=content_section,
     )
@@ -993,14 +930,15 @@ def _build_profile_item(
 
     handle = parsed["handle"]
     date_str = parsed["date_str"]
+    full_name = parsed["full_name"]
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / "Profile"
+    dest = resolve_user_dir(handle, full_name) / "Profile"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     return ContentItem(
         timestamp=archive_date,
         shortcode=pseudo,
-        real_name=parsed["full_name"],
+        real_name=full_name,
         username=handle,
         post_type="Profile",
         downloader=downloader,
@@ -1029,7 +967,7 @@ def _build_comment_thread_item(
     handle = parsed["handle"]
     date_str = parsed["date_str"]
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / "Posts"
+    dest = resolve_user_dir(handle) / "Posts"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     paired = " - PAIRED" in folder.name
@@ -1046,6 +984,7 @@ def _build_comment_thread_item(
         source_path=folder,
         source_files=all_files,
         is_folder_item=True,
+        move_as_folder=True,
         folder_type=folder_type,
         content_section=content_section,
     )
@@ -1065,14 +1004,15 @@ def _build_named_story_item(
 
     handle = parsed["handle"]
     date_str = parsed["date_str"]
+    full_name = parsed.get("full_name", "")
     pseudo = generate_pseudo_shortcode(handle, date_str, folder.name)
-    dest = ARCHIVE_ROOT / handle / "Stories"
+    dest = resolve_user_dir(handle, full_name) / "Stories"
     all_files = [f for f in folder.rglob("*") if f.is_file() and not f.name.startswith(".")]
 
     return ContentItem(
         timestamp=archive_date,
         shortcode=pseudo,
-        real_name=parsed.get("full_name", ""),
+        real_name=full_name,
         username=handle,
         post_type="Story Collection",
         downloader=downloader,

@@ -73,6 +73,8 @@ class ContentItem:
     source_files: list[Path] = field(default_factory=list)
     is_folder_item: bool = False
     has_metadata_json: bool = False
+    move_as_folder: bool = False
+    skip_sheet_log: bool = False
     folder_type: str = ""             # "sat_daily" or "daily_mo"
     content_section: str = ""         # "stories", "pv", "mo", "categories", etc.
     batch: str = ""
@@ -84,8 +86,10 @@ class ContentItem:
     @property
     def target_tab(self) -> str:
         """Determine which sheet tab this item belongs to."""
-        if self.post_type in ("Story", "Story Collection"):
+        if self.post_type in ("Story", "Story Collection", "Reshare"):
             return "Stories"
+        if self.post_type == "VE":
+            return "VE"
         return "P&V Manual Backup"
 
     @property
@@ -95,8 +99,12 @@ class ContentItem:
             return self.db_link
         src = Path(self.db_link)
         dest = Path(self.destination_path)
-        if self.post_type in ("Post", "Comment Thread") and self.source_path:
-            # Post folder is moved as-is: dest / folder_name / relative_path
+        if self.post_type == "Reshare" and self.source_path:
+            # Reshare folder flattened: dest / folder_name / filename
+            folder = Path(self.source_path)
+            return str(dest / folder.name / src.name)
+        if self.move_as_folder and self.source_path:
+            # Folder moved as-is: dest / folder_name / relative_path
             folder = Path(self.source_path)
             try:
                 rel = src.relative_to(folder)
@@ -110,7 +118,22 @@ class ContentItem:
         """Return sheet row matching the target tab's column layout."""
         if self.target_tab == "Stories":
             return self._to_stories_row()
+        if self.target_tab == "VE":
+            return self._to_ve_row()
         return self._to_pv_row()
+
+    def _to_ve_row(self) -> list[str]:
+        """8-element list for VE tab (A-H)."""
+        return [
+            self.timestamp,
+            self.shortcode,
+            self.real_name,
+            self.username,
+            self.downloader,
+            self.post_date,
+            self.dest_db_link,
+            self.manual_notes,
+        ]
 
     def _to_stories_row(self) -> list[str]:
         """38-element list for Stories tab (A-AL)."""

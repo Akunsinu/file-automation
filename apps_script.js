@@ -9,7 +9,7 @@
  *   5. Type: Web app, Execute as: Me, Who has access: Anyone
  *   6. Copy the URL and paste it into SAT Archiver settings
  *
- * Sheet must have two tabs: "Stories" and "P&V Manual Backup"
+ * Sheet must have three tabs: "Stories", "P&V Manual Backup", and "VE"
  */
 
 // Headers are sent per-tab from Python (SHEET_HEADERS_STORIES / SHEET_HEADERS_PV).
@@ -41,6 +41,12 @@ var HEADERS_PV = [
 
 var TAB_STORIES = "Stories";
 var TAB_PV_MANUAL = "P&V Manual Backup";
+var TAB_VE = "VE";
+
+var HEADERS_VE = [
+  "timestamp", "shortcode", "real_name", "username",
+  "downloader", "post_date", "DB Link", "manual notes"
+];
 
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || "test";
@@ -48,7 +54,7 @@ function doGet(e) {
 
   if (action === "test") {
     var counts = {};
-    var tabs = [TAB_STORIES, TAB_PV_MANUAL];
+    var tabs = [TAB_STORIES, TAB_PV_MANUAL, TAB_VE];
     var totalCount = 0;
     for (var t = 0; t < tabs.length; t++) {
       var sheet = ss.getSheetByName(tabs[t]);
@@ -67,7 +73,7 @@ function doGet(e) {
   if (action === "shortcodes") {
     // Read shortcodes from column B (Shortcode) across BOTH tabs
     var shortcodes = [];
-    var tabs = [TAB_STORIES, TAB_PV_MANUAL];
+    var tabs = [TAB_STORIES, TAB_PV_MANUAL, TAB_VE];
     for (var t = 0; t < tabs.length; t++) {
       var sheet = ss.getSheetByName(tabs[t]);
       if (!sheet) continue;
@@ -94,7 +100,7 @@ function doPost(e) {
   try {
     var payload = JSON.parse(e.postData.contents);
     var tabName = payload.tab || TAB_STORIES;
-    var defaultHeaders = (tabName === TAB_PV_MANUAL) ? HEADERS_PV : HEADERS_STORIES;
+    var defaultHeaders = (tabName === TAB_VE) ? HEADERS_VE : (tabName === TAB_PV_MANUAL) ? HEADERS_PV : HEADERS_STORIES;
     var headers = payload.headers || defaultHeaders;
     var rows = payload.rows || [];
 

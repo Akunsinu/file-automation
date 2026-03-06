@@ -10,7 +10,7 @@ import urllib.error
 from collections import defaultdict
 from pathlib import Path
 
-from .config import SHEET_HEADERS_STORIES, SHEET_HEADERS_PV, TAB_STORIES, TAB_PV_MANUAL
+from .config import SHEET_HEADERS_STORIES, SHEET_HEADERS_PV, SHEET_HEADERS_VE, TAB_STORIES, TAB_PV_MANUAL, TAB_VE
 from .models import ContentItem
 
 
@@ -71,6 +71,11 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
     if not items:
         return result
 
+    # Filter out items that shouldn't be logged to sheet
+    items = [i for i in items if not i.skip_sheet_log]
+    if not items:
+        return result
+
     # Group items by target tab
     by_tab: dict[str, list[ContentItem]] = defaultdict(list)
     for item in items:
@@ -81,7 +86,12 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
     delay_between_batches = 3  # seconds
 
     for tab_name, tab_items in by_tab.items():
-        headers = SHEET_HEADERS_STORIES if tab_name == TAB_STORIES else SHEET_HEADERS_PV
+        if tab_name == TAB_STORIES:
+            headers = SHEET_HEADERS_STORIES
+        elif tab_name == TAB_VE:
+            headers = SHEET_HEADERS_VE
+        else:
+            headers = SHEET_HEADERS_PV
         rows = [item.to_row() for item in tab_items]
         total_batches = (len(rows) + batch_size - 1) // batch_size
 
@@ -148,6 +158,7 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
 
 def write_csv_fallback(items: list[ContentItem], output_path: Path) -> None:
     """Write items to local CSV files, one per tab."""
+    items = [i for i in items if not i.skip_sheet_log]
     # Group by target tab
     by_tab: dict[str, list[ContentItem]] = defaultdict(list)
     for item in items:
@@ -155,9 +166,16 @@ def write_csv_fallback(items: list[ContentItem], output_path: Path) -> None:
 
     for tab_name, tab_items in by_tab.items():
         # Create tab-specific filename
-        suffix = "_stories" if tab_name == TAB_STORIES else "_pv"
+        if tab_name == TAB_STORIES:
+            suffix = "_stories"
+            headers = SHEET_HEADERS_STORIES
+        elif tab_name == TAB_VE:
+            suffix = "_ve"
+            headers = SHEET_HEADERS_VE
+        else:
+            suffix = "_pv"
+            headers = SHEET_HEADERS_PV
         csv_path = output_path.parent / f"{output_path.stem}{suffix}.csv"
-        headers = SHEET_HEADERS_STORIES if tab_name == TAB_STORIES else SHEET_HEADERS_PV
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(headers)
