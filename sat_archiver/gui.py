@@ -13,7 +13,7 @@ from flask import Flask, jsonify, render_template, request, send_file, abort
 from .config import ARCHIVE_ROOT, SOURCE_GLOBS
 from .main import find_latest_source_folder, load_config
 from .mover import move_items
-from .scanner import scan_folder
+from .scanner import get_last_scan_skipped, scan_folder
 from .sheets import (
     get_existing_shortcodes,
     log_items_to_sheet,
@@ -86,7 +86,7 @@ def _item_to_dict(item, existing_shortcodes: set) -> dict:
     d["folder_type"] = item.folder_type
     d["file_count"] = len(item.source_files)
     d["files"] = [str(f) for f in item.source_files]
-    d["is_duplicate"] = item.shortcode in existing_shortcodes
+    d["is_duplicate"] = bool(item.shortcode) and item.shortcode in existing_shortcodes
     d["resharer_username"] = item.resharer_username
     d["resharer_name"] = item.resharer_name
     return d
@@ -166,6 +166,7 @@ def scan():
         }), 400
 
     items = scan_folder(source)
+    skipped_paths = get_last_scan_skipped()
     if not items:
         return jsonify({
             "ok": False,
@@ -182,6 +183,13 @@ def scan():
     existing_shortcodes: set[str] = set()
     warnings: list[str] = []
 
+    if skipped_paths:
+        sample = ", ".join(str(p) for p in skipped_paths[:3])
+        extra = f" (+{len(skipped_paths) - 3} more)" if len(skipped_paths) > 3 else ""
+        warnings.append(
+            f"{len(skipped_paths)} folder(s) skipped due to permission errors: {sample}{extra}"
+        )
+
     if apps_script_url:
         existing_shortcodes = get_existing_shortcodes(apps_script_url)
         if not existing_shortcodes:
@@ -191,6 +199,14 @@ def scan():
                 warnings.append(f"Google Sheet unreachable: {err_msg}. Archiving will save a CSV fallback instead.")
     else:
         warnings.append("No Apps Script URL configured. Sheet logging will be skipped — data will only be saved as CSV.")
+
+    # Flag items missing a shortcode — they can't be deduped against the sheet.
+    missing_count = sum(1 for i in items if not i.shortcode)
+    if missing_count:
+        warnings.append(
+            f"{missing_count} item(s) have no shortcode and cannot be "
+            f"deduplicated — re-scanning may re-archive them."
+        )
 
     # Store state
     _state["items"] = items
@@ -211,7 +227,7 @@ def scan():
         "ok": True,
         "source_folder": str(source),
         "total": len(items),
-        "duplicates": sum(1 for i in items if i.shortcode in existing_shortcodes),
+        "duplicates": sum(1 for i in items if i.shortcode and i.shortcode in existing_shortcodes),
         "type_counts": type_counts,
         "tab_counts": tab_counts,
         "items": items_json,

@@ -45,6 +45,110 @@ from .parsers import (
 )
 
 
+# ── Story group accumulator ──────────────────────────────────────────────────
+# All story-scanning code paths share the same two-phase pattern: (1) collect
+# story files into a dict keyed by shortcode, accumulating the 3 suffix variants
+# plus username/real_name/date/context per group; (2) turn each group into a
+# single ContentItem. This class consolidates phase 2.
+
+def _new_story_groups() -> dict[str, dict]:
+    """Factory for the story-group defaultdict used throughout the scanner."""
+    return defaultdict(lambda: {
+        "files": [],
+        "username": "",
+        "full_name": "",
+        "shortcode": "",
+        "date_str": "",
+        "media_type": "",
+        "ctx": {},
+        "parent_dir": None,
+    })
+
+
+class StoryGroupAccumulator:
+    """Groups story files by shortcode and emits ContentItems.
+
+    Expose ``.groups`` to the existing walker helpers (they take a raw dict by
+    argument). Call ``.to_items()`` after the walk to get the list of story
+    ContentItems ready for moving/logging.
+    """
+
+    def __init__(
+        self,
+        downloader: str,
+        archive_date: str,
+        folder_type: str,
+        content_section: str,
+        include_batch_wpas: bool = True,
+    ):
+        self._downloader = downloader
+        self._archive_date = archive_date
+        self._folder_type = folder_type
+        self._content_section = content_section
+        # MO-style paths ({type}/{category}/) produce garbage batch/wpas values
+        # when run through parse_sat_daily_stories_context (e.g. batch="PW").
+        # MO callers opt out.
+        self._include_batch_wpas = include_batch_wpas
+        self.groups: dict[str, dict] = _new_story_groups()
+
+    def to_items(self, notes_fn=None) -> list[ContentItem]:
+        """Convert accumulated groups into ContentItems.
+
+        ``notes_fn``: optional callable(group) -> str used to stamp
+        manual_notes (for items pulled out of free-form Other/ buckets).
+        """
+        items: list[ContentItem] = []
+        for shortcode, group in self.groups.items():
+            dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
+            ctx = group["ctx"]
+            item = ContentItem(
+                timestamp=self._archive_date,
+                shortcode=shortcode,
+                real_name=group["full_name"],
+                username=group["username"],
+                post_type="Story",
+                downloader=self._downloader,
+                post_date=format_date(group["date_str"]),
+                db_link=str(group["files"][0]) if group["files"] else "",
+                batch=ctx.get("batch", "") if self._include_batch_wpas else "",
+                wpas_code=ctx.get("wpas_code", "") if self._include_batch_wpas else "",
+                manual_notes=notes_fn(group) if notes_fn else "",
+                destination_path=str(dest),
+                source_path=group["parent_dir"],
+                source_files=group["files"],
+                is_folder_item=False,
+                folder_type=self._folder_type,
+                content_section=self._content_section,
+            )
+            col = ctx.get("dropdown_column", "")
+            val = ctx.get("dropdown_value", "")
+            if col and val and hasattr(item, col):
+                setattr(item, col, val)
+            mo_col = ctx.get("mo_column", "")
+            mo_val = ctx.get("mo_value", "")
+            if mo_col and mo_val and hasattr(item, mo_col):
+                setattr(item, mo_col, mo_val)
+            items.append(item)
+        return items
+
+
+# ── Scan-wide diagnostic state ────────────────────────────────────────────────
+# Paths the scanner couldn't read due to PermissionError during the most recent
+# scan_folder() call. Populated by _note_skipped(); callers can read it via
+# get_last_scan_skipped() to surface silent skips to the user.
+_skipped_paths: list[Path] = []
+
+
+def _note_skipped(path: Path) -> None:
+    """Record a path that was skipped due to a permission error."""
+    _skipped_paths.append(path)
+
+
+def get_last_scan_skipped() -> list[Path]:
+    """Return paths skipped due to PermissionError in the most recent scan."""
+    return list(_skipped_paths)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def detect_folder_type(source_dir: Path) -> tuple[FolderType, str]:
@@ -64,13 +168,13 @@ def detect_folder_type(source_dir: Path) -> tuple[FolderType, str]:
                     if m:
                         return FolderType.SAT_DAILY, m.group(1)
         except PermissionError:
-            pass
+            _note_skipped(source_dir)
         return FolderType.SAT_DAILY, ""
 
     if name.startswith("Daily MO on "):
         return FolderType.DAILY_MO, ""
 
-    if name.startswith("Data Collect on "):
+    if name.startswith("Data Collect"):
         m = DATA_COLLECT_RE.match(name)
         if m:
             return FolderType.DATA_COLLECT, m.group(1)  # initials
@@ -84,6 +188,7 @@ def scan_folder(source_dir: Path) -> list[ContentItem]:
 
     Dispatches to SAT Daily or Daily MO scanner based on folder type.
     """
+    _skipped_paths.clear()
     folder_type, initials = detect_folder_type(source_dir)
 
     if folder_type == FolderType.SAT_DAILY:
@@ -109,7 +214,7 @@ def _scan_sat_daily(source_dir: Path, downloader: str) -> list[ContentItem]:
                 sat_checks = entry
                 break
     except PermissionError:
-        pass
+        _note_skipped(source_dir)
 
     if not sat_checks:
         print(f"Error: No 'SAT Checks - * - RTA' directory found in {source_dir}")
@@ -139,49 +244,9 @@ def _scan_sat_daily(source_dir: Path, downloader: str) -> list[ContentItem]:
 def _scan_sat_daily_stories(stories_dir: Path, downloader: str, archive_date: str) -> list[ContentItem]:
     """Scan Stories/ section: Batch/Category/WPAS hierarchy."""
     items: list[ContentItem] = []
-    story_groups: dict[str, dict] = defaultdict(lambda: {
-        "files": [],
-        "username": "",
-        "full_name": "",
-        "shortcode": "",
-        "date_str": "",
-        "media_type": "",
-        "ctx": {},
-        "parent_dir": None,
-    })
-
-    _walk_stories_tree(stories_dir, stories_dir, items, story_groups, downloader, archive_date)
-
-    # Convert story groups into ContentItems
-    for shortcode, group in story_groups.items():
-        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
-        ctx = group["ctx"]
-        item = ContentItem(
-            timestamp=archive_date,
-            shortcode=shortcode,
-            real_name=group["full_name"],
-            username=group["username"],
-            post_type="Story",
-            downloader=downloader,
-            post_date=format_date(group["date_str"]),
-            db_link=str(group["files"][0]) if group["files"] else "",
-            batch=ctx.get("batch", ""),
-            wpas_code=ctx.get("wpas_code", ""),
-            destination_path=str(dest),
-            source_path=group["parent_dir"],
-            source_files=group["files"],
-            is_folder_item=False,
-            folder_type="sat_daily",
-            content_section="stories",
-        )
-        # Set dropdown column value from context
-        col = ctx.get("dropdown_column", "")
-        val = ctx.get("dropdown_value", "")
-        if col and val:
-            if hasattr(item, col):
-                setattr(item, col, val)
-        items.append(item)
-
+    acc = StoryGroupAccumulator(downloader, archive_date, "sat_daily", "stories")
+    _walk_stories_tree(stories_dir, stories_dir, items, acc.groups, downloader, archive_date)
+    items.extend(acc.to_items())
     return items
 
 
@@ -220,6 +285,7 @@ def _walk_stories_tree(
     try:
         entries = sorted(current.iterdir())
     except PermissionError:
+        _note_skipped(current)
         return
 
     dirs: list[Path] = []
@@ -297,7 +363,7 @@ def _scan_sat_daily_pv(pv_dir: Path, downloader: str, archive_date: str) -> list
                     if item:
                         items.append(item)
     except PermissionError:
-        pass
+        _note_skipped(pv_dir)
 
     return items
 
@@ -308,16 +374,10 @@ def _scan_sat_daily_mo(
 ) -> list[ContentItem]:
     """Scan Additional/MO/ section: {type}/{category}/..."""
     items: list[ContentItem] = []
-    story_groups: dict[str, dict] = defaultdict(lambda: {
-        "files": [],
-        "username": "",
-        "full_name": "",
-        "shortcode": "",
-        "date_str": "",
-        "media_type": "",
-        "ctx": {},
-        "parent_dir": None,
-    })
+    acc = StoryGroupAccumulator(
+        downloader, archive_date, folder_type, content_section,
+        include_batch_wpas=False,
+    )
 
     try:
         for type_dir in sorted(mo_dir.iterdir()):
@@ -331,41 +391,15 @@ def _scan_sat_daily_mo(
                     continue
                 mo_value = category_dir.name  # "History - Lifestyle", etc.
 
-                # Scan for story files and post folders in this category
                 _scan_mo_category(
                     category_dir, mo_column, mo_value,
-                    items, story_groups, mo_dir,
+                    items, acc.groups, mo_dir,
                     downloader, archive_date, folder_type, content_section,
                 )
     except PermissionError:
-        pass
+        _note_skipped(mo_dir)
 
-    # Convert story groups
-    for shortcode, group in story_groups.items():
-        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
-        ctx = group["ctx"]
-        item = ContentItem(
-            timestamp=archive_date,
-            shortcode=shortcode,
-            real_name=group["full_name"],
-            username=group["username"],
-            post_type="Story",
-            downloader=downloader,
-            post_date=format_date(group["date_str"]),
-            db_link=str(group["files"][0]) if group["files"] else "",
-            destination_path=str(dest),
-            source_path=group["parent_dir"],
-            source_files=group["files"],
-            is_folder_item=False,
-            folder_type=folder_type,
-            content_section=content_section,
-        )
-        mo_col = ctx.get("mo_column", "")
-        mo_val = ctx.get("mo_value", "")
-        if mo_col and mo_val and hasattr(item, mo_col):
-            setattr(item, mo_col, mo_val)
-        items.append(item)
-
+    items.extend(acc.to_items())
     return items
 
 
@@ -385,6 +419,7 @@ def _scan_mo_category(
     try:
         entries = sorted(category_dir.iterdir())
     except PermissionError:
+        _note_skipped(category_dir)
         return
 
     for entry in entries:
@@ -464,16 +499,9 @@ def _scan_daily_mo(source_dir: Path) -> list[ContentItem]:
 def _scan_daily_mo_categories(categories_dir: Path, archive_date: str) -> list[ContentItem]:
     """Scan Categories/ — each subfolder name becomes mo_pw value."""
     items: list[ContentItem] = []
-    story_groups: dict[str, dict] = defaultdict(lambda: {
-        "files": [],
-        "username": "",
-        "full_name": "",
-        "shortcode": "",
-        "date_str": "",
-        "media_type": "",
-        "ctx": {},
-        "parent_dir": None,
-    })
+    acc = StoryGroupAccumulator(
+        "", archive_date, "daily_mo", "categories", include_batch_wpas=False,
+    )
 
     try:
         for cat_dir in sorted(categories_dir.iterdir()):
@@ -483,37 +511,13 @@ def _scan_daily_mo_categories(categories_dir: Path, archive_date: str) -> list[C
 
             _scan_mo_category(
                 cat_dir, "mo_pw", category_name,
-                items, story_groups, categories_dir,
+                items, acc.groups, categories_dir,
                 "", archive_date, "daily_mo", "categories",
             )
     except PermissionError:
-        pass
+        _note_skipped(categories_dir)
 
-    # Convert story groups
-    for shortcode, group in story_groups.items():
-        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
-        ctx = group["ctx"]
-        item = ContentItem(
-            timestamp=archive_date,
-            shortcode=shortcode,
-            real_name=group["full_name"],
-            username=group["username"],
-            post_type="Story",
-            post_date=format_date(group["date_str"]),
-            db_link=str(group["files"][0]) if group["files"] else "",
-            destination_path=str(dest),
-            source_path=group["parent_dir"],
-            source_files=group["files"],
-            is_folder_item=False,
-            folder_type="daily_mo",
-            content_section="categories",
-        )
-        mo_col = ctx.get("mo_column", "")
-        mo_val = ctx.get("mo_value", "")
-        if mo_col and mo_val and hasattr(item, mo_col):
-            setattr(item, mo_col, mo_val)
-        items.append(item)
-
+    items.extend(acc.to_items())
     return items
 
 
@@ -579,7 +583,7 @@ def _scan_daily_mo_reshares(reshares_dir: Path, archive_date: str) -> list[Conte
                     content_section="reshares",
                 ))
     except PermissionError:
-        pass
+        _note_skipped(reshares_dir)
 
     return items
 
@@ -634,7 +638,7 @@ def _scan_daily_mo_manual(manual_dir: Path, archive_date: str) -> list[ContentIt
                 continue
 
     except PermissionError:
-        pass
+        _note_skipped(manual_dir)
 
     return items
 
@@ -669,7 +673,7 @@ def _scan_daily_mo_profile(profile_dir: Path, archive_date: str) -> list[Content
                     content_section="profile",
                 ))
     except PermissionError:
-        pass
+        _note_skipped(profile_dir)
 
     return items
 
@@ -706,7 +710,7 @@ def _scan_daily_mo_ve(ve_dir: Path, archive_date: str) -> list[ContentItem]:
                     content_section="ve",
                 ))
     except PermissionError:
-        pass
+        _note_skipped(ve_dir)
 
     return items
 
@@ -714,16 +718,35 @@ def _scan_daily_mo_ve(ve_dir: Path, archive_date: str) -> list[ContentItem]:
 # ── Data Collect Scanner ─────────────────────────────────────────────────────
 
 def _scan_data_collect(source_dir: Path, downloader: str) -> list[ContentItem]:
-    """Scan a Data Collect folder (Categories + MOT Checks sections)."""
+    """Scan a Data Collect folder.
+
+    Canonical layout:
+      {root}/SAT Checks/Categories/...
+      {root}/SAT Checks/Other/...
+      {root}/MOT Checks/Categories/...
+      {root}/MOT Checks/Other/...
+      {root}/MOT Checks/{Profile,Reshares,VE}/...
+    Legacy fallback: {root}/Categories/... (no SAT Checks wrapper).
+    """
     items: list[ContentItem] = []
     archive_date = today_str()
 
-    # ── Categories section (Stories tab content) ──
-    cat_dir = source_dir / "Categories"
-    if cat_dir.is_dir():
-        items.extend(_scan_data_collect_categories(cat_dir, downloader, archive_date))
+    # ── SAT Checks section ──
+    sat_dir = source_dir / "SAT Checks"
+    if sat_dir.is_dir():
+        sat_categories = sat_dir / "Categories"
+        if sat_categories.is_dir():
+            items.extend(_scan_data_collect_categories(sat_categories, downloader, archive_date))
+        sat_other = sat_dir / "Other"
+        if sat_other.is_dir():
+            items.extend(_walk_other_tree(sat_other, downloader, archive_date, "sat_other"))
+    else:
+        # Legacy flat layout
+        cat_dir = source_dir / "Categories"
+        if cat_dir.is_dir():
+            items.extend(_scan_data_collect_categories(cat_dir, downloader, archive_date))
 
-    # ── MOT Checks section (P&V tab + Profile/VE/Reshares) ──
+    # ── MOT Checks section ──
     mot_dir = source_dir / "MOT Checks"
     if mot_dir.is_dir():
         items.extend(_scan_mot_checks(mot_dir, downloader, archive_date))
@@ -736,58 +759,14 @@ def _scan_data_collect_categories(
 ) -> list[ContentItem]:
     """Scan Data Collect Categories/ section using _walk_stories_tree."""
     items: list[ContentItem] = []
-    story_groups: dict[str, dict] = defaultdict(lambda: {
-        "files": [],
-        "username": "",
-        "full_name": "",
-        "shortcode": "",
-        "date_str": "",
-        "media_type": "",
-        "ctx": {},
-        "parent_dir": None,
-    })
-
+    acc = StoryGroupAccumulator(downloader, archive_date, "data_collect", "categories")
     _walk_stories_tree(
-        cat_dir, cat_dir, items, story_groups, downloader, archive_date,
+        cat_dir, cat_dir, items, acc.groups, downloader, archive_date,
         context_parser=parse_data_collect_categories_context,
         folder_type="data_collect",
         content_section="categories",
     )
-
-    # Convert story groups into ContentItems
-    for shortcode, group in story_groups.items():
-        dest = resolve_user_dir(group["username"], group["full_name"]) / "Stories"
-        ctx = group["ctx"]
-        item = ContentItem(
-            timestamp=archive_date,
-            shortcode=shortcode,
-            real_name=group["full_name"],
-            username=group["username"],
-            post_type="Story",
-            downloader=downloader,
-            post_date=format_date(group["date_str"]),
-            db_link=str(group["files"][0]) if group["files"] else "",
-            batch=ctx.get("batch", ""),
-            wpas_code=ctx.get("wpas_code", ""),
-            destination_path=str(dest),
-            source_path=group["parent_dir"],
-            source_files=group["files"],
-            is_folder_item=False,
-            folder_type="data_collect",
-            content_section="categories",
-        )
-        # Set dropdown column value from context
-        col = ctx.get("dropdown_column", "")
-        val = ctx.get("dropdown_value", "")
-        if col and val and hasattr(item, col):
-            setattr(item, col, val)
-        # Set MO column value from context
-        mo_col = ctx.get("mo_column", "")
-        mo_val = ctx.get("mo_value", "")
-        if mo_col and mo_val and hasattr(item, mo_col):
-            setattr(item, mo_col, mo_val)
-        items.append(item)
-
+    items.extend(acc.to_items())
     return items
 
 
@@ -833,6 +812,109 @@ def _scan_mot_checks(
             item.content_section = "ve"
             items.append(item)
 
+    # ── Other/ — free-form buckets (Regular Comment, Projects, etc.) ──
+    other_dir = mot_dir / "Other"
+    if other_dir.is_dir():
+        items.extend(_walk_other_tree(other_dir, downloader, archive_date, "mot_other"))
+
+    return items
+
+
+def _walk_other_tree(
+    root: Path,
+    downloader: str,
+    archive_date: str,
+    content_section: str,
+) -> list[ContentItem]:
+    """Recursively walk an Other/ bucket and dispatch content to existing builders.
+
+    The path from Other/ down to (but not including) the content leaf is captured
+    into manual_notes so the sheet preserves the bucket context (e.g.
+    "Projects / Project Hope" or "Regular Comment / Thread") without forcing
+    these items into the regular dropdown taxonomy.
+    """
+    items: list[ContentItem] = []
+    acc = StoryGroupAccumulator(
+        downloader, archive_date, "data_collect", content_section,
+        include_batch_wpas=False,
+    )
+
+    def label_for(container: Path) -> str:
+        try:
+            rel = container.relative_to(root)
+        except ValueError:
+            return ""
+        parts = [p for p in rel.parts if p]
+        return " / ".join(parts)
+
+    def visit(current: Path) -> None:
+        try:
+            entries = sorted(current.iterdir())
+        except PermissionError:
+            _note_skipped(current)
+            return
+
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+
+            if entry.is_dir():
+                name = entry.name
+
+                if POST_FOLDER_RE.match(name):
+                    item = _build_post_item(
+                        entry, downloader, archive_date, "data_collect", content_section,
+                    )
+                    if item:
+                        item.manual_notes = label_for(entry.parent)
+                        items.append(item)
+                    continue
+
+                if PROFILE_FOLDER_RE.match(name):
+                    item = _build_profile_item(
+                        entry, downloader, archive_date, "data_collect", content_section,
+                    )
+                    if item:
+                        item.manual_notes = label_for(entry.parent)
+                        items.append(item)
+                    continue
+
+                if COMMENT_FOLDER_RE.match(name):
+                    item = _build_comment_thread_item(
+                        entry, downloader, archive_date, "data_collect", content_section,
+                    )
+                    if item:
+                        item.manual_notes = label_for(entry.parent)
+                        items.append(item)
+                    continue
+
+                if NAMED_STORY_FOLDER_RE.match(name) or STORIES_TXT_FOLDER_RE.match(name):
+                    if _folder_contains_story_files(entry):
+                        _collect_story_files_from_dir(entry, root, acc.groups)
+                    else:
+                        item = _build_named_story_item(
+                            entry, downloader, archive_date, "data_collect", content_section,
+                        )
+                        if item:
+                            item.manual_notes = label_for(entry.parent)
+                            items.append(item)
+                    continue
+
+                # Plain directory — recurse
+                visit(entry)
+
+            elif entry.is_file():
+                parsed = parse_story_filename(entry.name)
+                if parsed:
+                    _add_to_story_group(entry, parsed, root, acc.groups)
+
+    visit(root)
+
+    def _notes_for_story(group: dict) -> str:
+        parent = group["parent_dir"]
+        return label_for(parent) if parent is not None else ""
+
+    items.extend(acc.to_items(notes_fn=_notes_for_story))
     return items
 
 
@@ -1035,7 +1117,7 @@ def _folder_contains_story_files(folder: Path) -> bool:
             if entry.is_file() and STORY_FILE_RE.match(entry.name):
                 return True
     except PermissionError:
-        pass
+        _note_skipped(folder)
     return False
 
 
@@ -1057,7 +1139,7 @@ def _collect_story_files_from_dir(
                                         mo_column=mo_column, mo_value=mo_value,
                                         context_parser=context_parser)
     except PermissionError:
-        pass
+        _note_skipped(folder)
 
 
 def _add_to_story_group(

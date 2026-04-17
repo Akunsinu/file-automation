@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import ARCHIVE_ROOT, SOURCE_GLOBS
 from .mover import move_items
-from .scanner import scan_folder
+from .scanner import get_last_scan_skipped, scan_folder
 from .sheets import (
     get_existing_shortcodes,
     log_items_to_sheet,
@@ -115,6 +115,14 @@ def main(argv: list[str] | None = None) -> int:
     print("\nScanning...")
     items = scan_folder(source_dir)
 
+    skipped_paths = get_last_scan_skipped()
+    if skipped_paths:
+        print(f"\n  Note: {len(skipped_paths)} folder(s) skipped due to permission errors:")
+        for p in skipped_paths[:5]:
+            print(f"    {p}")
+        if len(skipped_paths) > 5:
+            print(f"    ...and {len(skipped_paths) - 5} more")
+
     if not items:
         print("No content items found.")
         return 0
@@ -140,8 +148,24 @@ def main(argv: list[str] | None = None) -> int:
             existing_shortcodes = get_existing_shortcodes(apps_script_url)
             print(f"  Found {len(existing_shortcodes)} existing entries.")
 
-    # Filter out duplicates
-    new_items = [i for i in items if i.shortcode not in existing_shortcodes]
+    # Flag items missing a shortcode — they can't be deduped and would be re-archived
+    # on every run if we let them through the existing_shortcodes gate silently.
+    missing_shortcode = [i for i in items if not i.shortcode]
+    if missing_shortcode:
+        print(f"\n  Warning: {len(missing_shortcode)} item(s) have no shortcode "
+              f"and cannot be deduplicated against the sheet:")
+        for i in missing_shortcode[:5]:
+            src = i.source_path or "?"
+            print(f"    {i.post_type} @ {src}")
+        if len(missing_shortcode) > 5:
+            print(f"    ...and {len(missing_shortcode) - 5} more")
+
+    # Filter out duplicates (items with empty shortcode pass through — they'd
+    # otherwise all collide on the empty string in existing_shortcodes)
+    new_items = [
+        i for i in items
+        if not i.shortcode or i.shortcode not in existing_shortcodes
+    ]
     skipped = len(items) - len(new_items)
 
     if skipped:

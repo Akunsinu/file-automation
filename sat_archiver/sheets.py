@@ -10,7 +10,19 @@ import urllib.error
 from collections import defaultdict
 from pathlib import Path
 
-from .config import SHEET_HEADERS_STORIES, SHEET_HEADERS_PV, SHEET_HEADERS_VE, TAB_STORIES, TAB_PV_MANUAL, TAB_VE
+from .config import (
+    SHEET_BATCH_SIZE,
+    SHEET_DELAY_BETWEEN_BATCHES,
+    SHEET_HEADERS_STORIES,
+    SHEET_HEADERS_PV,
+    SHEET_HEADERS_VE,
+    SHEET_MAX_RETRIES,
+    SHEET_REQUEST_TIMEOUT,
+    SHEET_RETRY_BACKOFF_BASE,
+    TAB_STORIES,
+    TAB_PV_MANUAL,
+    TAB_VE,
+)
 from .models import ContentItem
 
 
@@ -81,9 +93,9 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
     for item in items:
         by_tab[item.target_tab].append(item)
 
-    batch_size = 5
-    max_retries = 3
-    delay_between_batches = 3  # seconds
+    batch_size = SHEET_BATCH_SIZE
+    max_retries = SHEET_MAX_RETRIES
+    delay_between_batches = SHEET_DELAY_BETWEEN_BATCHES
 
     for tab_name, tab_items in by_tab.items():
         if tab_name == TAB_STORIES:
@@ -115,7 +127,7 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    with urllib.request.urlopen(req, timeout=120) as resp:
+                    with urllib.request.urlopen(req, timeout=SHEET_REQUEST_TIMEOUT) as resp:
                         data = json.loads(resp.read().decode())
                     if data.get("ok"):
                         added = data.get("added", 0)
@@ -137,7 +149,7 @@ def log_items_to_sheet(url: str, items: list[ContentItem]) -> dict:
                     print(f"  Sheet write failed ({tab_name}, batch {batch_num}, attempt {attempt}/{max_retries}): {last_error}")
 
                 if attempt < max_retries:
-                    wait = 2 ** attempt  # 2s, 4s backoff
+                    wait = SHEET_RETRY_BACKOFF_BASE ** attempt
                     print(f"  Retrying in {wait}s...")
                     time.sleep(wait)
 

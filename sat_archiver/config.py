@@ -10,6 +10,7 @@ SOURCE_GLOBS = [
     str(Path.home() / "Downloads" / "SAT Daily on ????-??-??"),
     str(Path.home() / "Downloads" / "Daily MO on ????-??-??"),
     str(Path.home() / "Downloads" / "Data Collect on ????-??-?? - * - *"),
+    str(Path.home() / "Downloads" / "Data Collect & Input on ????-??-?? - * - *"),
 ]
 # Legacy single glob (still used by some call sites)
 SOURCE_GLOB = SOURCE_GLOBS[0]
@@ -29,8 +30,10 @@ class FolderType(Enum):
     DATA_COLLECT = "data_collect"
     UNKNOWN = "unknown"
 
-# Data Collect folder name: "Data Collect on YYYY-MM-DD - INITIALS - SUFFIX"
-DATA_COLLECT_RE = re.compile(r"^Data Collect on \d{4}-\d{2}-\d{2} - (.+?) - (.+)$")
+# Data Collect folder name: "Data Collect[ & Input] on YYYY-MM-DD - INITIALS - SUFFIX"
+DATA_COLLECT_RE = re.compile(
+    r"^Data Collect(?:\s+&\s+Input)?\s+on\s+\d{4}-\d{2}-\d{2} - (.+?) - (.+)$"
+)
 
 # ── Content type regex patterns (applied to filenames/folder names) ──────────
 
@@ -59,9 +62,9 @@ PROFILE_FOLDER_RE = re.compile(
 )
 
 # Type D: Comment thread folders
-# IG Regular Comment - ... - @handle[ - PAIRED]
+# IG Regular Comment - ... - [@]handle[ - PAIRED]
 COMMENT_FOLDER_RE = re.compile(
-    r"^IG Regular Comment\b.*?(\d{4}-\d{2}-\d{2}).*?- @([\w.]+)(?:\s+-\s+PAIRED)?$"
+    r"^IG Regular Comment\b.*?(\d{4}-\d{2}-\d{2}).*?-\s*@?([\w.]+)(?:\s+-\s+PAIRED)?$"
 )
 
 # Type E: Named story folders
@@ -94,6 +97,15 @@ VE_FILE_RE = re.compile(
 PROFILE_FILE_RE = re.compile(
     r"^([\w.]+)_profile_(\d{8})\.(png|jpg)$"
 )
+
+# ── Sheets writer tuning ──────────────────────────────────────────────────────
+# Rows per POST to the Apps Script web app. Small batches sidestep Apps Script
+# runtime limits and keep failures localized for retry.
+SHEET_BATCH_SIZE = 5
+SHEET_MAX_RETRIES = 3
+SHEET_REQUEST_TIMEOUT = 120        # seconds per POST
+SHEET_DELAY_BETWEEN_BATCHES = 3    # seconds, polite pause so Apps Script can breathe
+SHEET_RETRY_BACKOFF_BASE = 2       # seconds, exponential: 2, 4, 8…
 
 # ── WPAS code extraction ──────────────────────────────────────────────────────
 WPAS_RE = re.compile(r"^WPAS\s+(.+)$")
